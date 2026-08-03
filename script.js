@@ -9,6 +9,8 @@
   const MOVE_SPEED_X = 260;
   const MOVE_SPEED_Y = 130;
   const CANNON_TOP_OFFSET = 74; // muzzle rim sits this far above the cannon's base line
+  const BOOST_DURATION = 1.2;   // how long the muzzle kick keeps pushing after firing
+  const BOOST_EXTRA = 340;      // px/s piled on top of cruise speed at t=0, eased to 0
 
   const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
@@ -96,10 +98,26 @@
   let cloudWallTimer = 6;
   let windCooldown = 0;
   let currentZoom = 1, zoomTarget = 1;
+  let boost = 0; // 1 right after firing, eased to 0 over BOOST_DURATION
 
   for(let i=0;i<70;i++){
     stars.push({ x: Math.random()*GAME_W, y: Math.random()*GAME_H, r: Math.random()*1.6+0.4, tw: Math.random()*6.28 });
   }
+
+  // streaks that rush past during the boost — the only thing that actually sells
+  // speed, since the shot itself is pinned to a fixed height on screen
+  const speedLines = [];
+  for(let i=0;i<22;i++) speedLines.push({ x:0, y:0, len:0, spd:0, alpha:0 });
+  function scatterSpeedLines(){
+    for(const l of speedLines){
+      l.x = Math.random()*GAME_W;
+      l.y = Math.random()*GAME_H;
+      l.len = 50 + Math.random()*110;
+      l.spd = 1.5 + Math.random()*1.6; // parallax: nearer streaks fly by faster
+      l.alpha = 0.25 + Math.random()*0.4;
+    }
+  }
+  scatterSpeedLines();
 
   function reset(){
     state = 'launching';
@@ -119,6 +137,8 @@
     player.y = LAUNCH_Y;
     player.vx = 0;
     clearDrag();
+    boost = 1;
+    scatterSpeedLines();
     hudHeight.textContent = '0m'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
     resultScreen.classList.add('hidden');
@@ -252,11 +272,28 @@
       }
     }
 
-    if(state === 'playing'){
+    // The world scrolls from the moment of firing, launch animation included.
+    // Without this the first 0.85s is a dead-still screen and the shot reads as
+    // floating rather than being flung out of a cannon.
+    if(state === 'launching' || state === 'playing'){
+      boost = Math.pow(1 - Math.min(1, elapsed/BOOST_DURATION), 2); // ease-out
       // speed increases very gradually with time survived, not with height directly
-      scrollSpeed = Math.min(230, 90 + elapsed*1.0);
+      scrollSpeed = Math.min(230, 90 + elapsed*1.0) + boost*BOOST_EXTRA;
       heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
+      hudHeight.textContent = Math.floor(heightM) + 'm';
 
+      for(const l of speedLines){
+        l.y += scrollSpeed * l.spd * dt;
+        if(l.y - l.len > GAME_H){ // recycle off the top once it has fully passed
+          l.y = -Math.random()*120;
+          l.x = Math.random()*GAME_W;
+        }
+      }
+    } else {
+      boost = 0;
+    }
+
+    if(state === 'playing'){
       // keyboard wins while a key is held; otherwise the shot chases the drag target,
       // capped at the same speed so touch is never easier than keys
       let vx = 0;
@@ -331,8 +368,6 @@
           triggerExplosion();
         }
       }
-
-      hudHeight.textContent = Math.floor(heightM) + 'm';
     }
 
     if(state === 'exploding'){
@@ -421,6 +456,25 @@
       }
       ctx.restore();
     }
+  }
+
+  function drawSpeedLines(){
+    if(boost <= 0.02) return;
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    for(const l of speedLines){
+      // tapered so each streak reads as a trail rather than a floating stick
+      const grad = ctx.createLinearGradient(l.x, l.y - l.len, l.x, l.y);
+      grad.addColorStop(0, 'rgba(210,240,255,0)');
+      grad.addColorStop(1, `rgba(210,240,255,${(boost*l.alpha).toFixed(3)})`);
+      ctx.strokeStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(l.x, l.y - l.len);
+      ctx.lineTo(l.x, l.y);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawWalls(){
@@ -538,12 +592,19 @@
     ctx.fill();
     ctx.restore();
 
+    // exhaust trail, stretched while the muzzle kick is still pushing
+    const tailLen = 14 + boost*54;
+    const tailTop = player.y + player.r;
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,210,63,0.5)';
-    ctx.lineWidth = 3;
+    const tailGrad = ctx.createLinearGradient(player.x, tailTop, player.x, tailTop + tailLen);
+    tailGrad.addColorStop(0, 'rgba(255,210,63,0.55)');
+    tailGrad.addColorStop(1, 'rgba(255,120,40,0)');
+    ctx.strokeStyle = tailGrad;
+    ctx.lineWidth = 3 + boost*2;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(player.x, player.y+player.r);
-    ctx.lineTo(player.x, player.y+player.r+14);
+    ctx.moveTo(player.x, tailTop);
+    ctx.lineTo(player.x, tailTop + tailLen);
     ctx.stroke();
     ctx.restore();
   }
@@ -582,6 +643,7 @@
     ctx.clearRect(0,0,GAME_W,GAME_H);
     drawSky();
     drawBackgroundDetails();
+    drawSpeedLines();
     drawWalls();
     drawCannon(); // self-hides once it has scrolled past the bottom edge
     ctx.save();
