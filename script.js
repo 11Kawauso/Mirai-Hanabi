@@ -8,6 +8,7 @@
   const VERTICAL_RANGE = 46; // small up/down wiggle room around the usual flight line
   const MOVE_SPEED_X = 260;
   const MOVE_SPEED_Y = 130;
+  const CANNON_TOP_OFFSET = 74; // muzzle rim sits this far above the cannon's base line
 
   const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
@@ -443,7 +444,11 @@
   }
 
   function drawCannon(){
-    const cx = GAME_W/2, baseY = GAME_H-4;
+    // rides the world scroll exactly like the city below, so it slides out of
+    // frame with everything else instead of vanishing the instant flight starts
+    const drop = heightM * PIXELS_PER_METER;
+    const cx = GAME_W/2, baseY = GAME_H-4 + drop;
+    if(baseY - CANNON_TOP_OFFSET > GAME_H) return; // fully below the frame
     ctx.save();
     ctx.fillStyle = '#1b1830';
     ctx.beginPath();
@@ -578,7 +583,7 @@
     drawSky();
     drawBackgroundDetails();
     drawWalls();
-    if(state === 'start' || state === 'launching') drawCannon();
+    drawCannon(); // self-hides once it has scrolled past the bottom edge
     ctx.save();
     if(state === 'exploding'){
       const cx = GAME_W/2, cy = GAME_H/2;
