@@ -24,6 +24,11 @@
   // never sails against the wind — only slower or faster than its neighbours.
   const WIND_FACTOR_MIN = 0.65, WIND_FACTOR_MAX = 1.35;
   function randomWindFactor(){ return WIND_FACTOR_MIN + Math.random()*(WIND_FACTOR_MAX-WIND_FACTOR_MIN); }
+  // A cloud wall can only shift its gap so far before the gap would leave the
+  // lane entirely, so it leans into the wind less and coasts to a stop near the
+  // edges rather than hitting the limit and freezing on the spot.
+  const WALL_WIND_SCALE = 0.35;
+  const WALL_EDGE_EASE = 70; // px of runway over which the gap eases to a halt
 
   const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
@@ -363,7 +368,13 @@
           if(o.wall){
             // Slide the gap, not the slabs. Drifting the whole wall would tear a
             // free hole open at whichever side edge it pulled away from.
-            o.gapX = clamp(o.gapX + drift, PLAY_LEFT, PLAY_RIGHT - o.gapW);
+            let d = drift * WALL_WIND_SCALE;
+            // Bleed the drift off over the last stretch of runway. The gap then
+            // settles against the edge asymptotically instead of running full
+            // speed into the clamp and stopping dead the frame it arrives.
+            const room = d > 0 ? (PLAY_RIGHT - o.gapW - o.gapX) : (o.gapX - PLAY_LEFT);
+            d *= clamp(room / WALL_EDGE_EASE, 0, 1);
+            o.gapX = clamp(o.gapX + d, PLAY_LEFT, PLAY_RIGHT - o.gapW);
             if(o.side === 'left'){ o.x = PLAY_LEFT; o.w = o.gapX - PLAY_LEFT; }
             else { o.x = o.gapX + o.gapW; o.w = PLAY_RIGHT - o.x; }
           } else {
