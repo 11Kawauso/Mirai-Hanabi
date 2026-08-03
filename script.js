@@ -12,6 +12,15 @@
   const BOOST_DURATION = 1.2;   // how long the muzzle kick keeps pushing after firing
   const BOOST_EXTRA = 340;      // px/s piled on top of cruise speed at t=0, eased to 0
 
+  // Wind. A signed speed in m/s (negative = blowing left) that never sits still:
+  // it eases toward a fresh target every dozen-odd seconds, and that target is
+  // sometimes dead calm.
+  const WIND_START = 3.0;        // seconds after firing before wind starts and the gauge appears
+  const WIND_MAX = 5;            // m/s
+  const WIND_PX_PER_MS = 22;     // px/s of sideways drift per m/s -> 5m/s is 110px/s vs the shot's 260
+  const WIND_EASE = 0.55;        // m/s the wind is allowed to change per second
+  const WIND_CALM_CHANCE = 0.25; // how often a new target is "no wind at all"
+
   const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -96,9 +105,12 @@
   let launchTimer = 0;
   let muzzleParticles = [];
   let cloudWallTimer = 6;
-  let windCooldown = 0;
   let currentZoom = 1, zoomTarget = 1;
   let boost = 0; // 1 right after firing, eased to 0 over BOOST_DURATION
+  let windSpeed = 0;   // signed m/s, negative = left
+  let windTarget = 0;
+  let windTimer = 0;   // until the next target is rolled
+  let windVisible = 0; // 0..1 fade of the bottom gauge
 
   for(let i=0;i<70;i++){
     stars.push({ x: Math.random()*GAME_W, y: Math.random()*GAME_H, r: Math.random()*1.6+0.4, tw: Math.random()*6.28 });
@@ -126,7 +138,6 @@
     scrollSpeed = 90;
     spawnTimer = 1.0;
     cloudWallTimer = 5 + Math.random()*3;
-    windCooldown = 0;
     currentZoom = 1;
     zoomTarget = 1;
     obstacles = [];
@@ -138,6 +149,10 @@
     player.vx = 0;
     clearDrag();
     boost = 1;
+    windSpeed = 0; // every run starts calm, then builds once the gauge appears
+    windTarget = 0;
+    windTimer = 0;
+    windVisible = 0;
     scatterSpeedLines();
     hudHeight.textContent = '0m'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
@@ -160,8 +175,7 @@
   }
 
   function weightedObstacleType(){
-    const pool = [{t:'cloud', w:5}, {t:'movingcloud', w:4}];
-    if(heightM > 150 && windCooldown <= 0) pool.push({t:'wind', w:3});
+    const pool = [{t:'cloud', w:5}];
     if(heightM > 300) pool.push({t:'debris', w:3});
     if(heightM > 600) pool.push({t:'bird', w:3});
     const total = pool.reduce((s,p)=>s+p.w,0);
@@ -175,20 +189,8 @@
     if(type === 'cloud'){
       const w = 70 + Math.random()*70;
       obstacles.push({ type, x: Math.random()*(GAME_W-w), y: -60, w, h: 42 + Math.random()*18 });
-    } else if(type === 'wind'){
-      const dir = Math.random() < 0.5 ? -1 : 1;
-      const h = 160;
-      obstacles.push({ type, x:0, y:-h, w: GAME_W, h, dir, force: 190 });
-      // don't let another gust start until this one has fully drifted off screen
-      windCooldown = (GAME_H + 120 + h) / Math.max(scrollSpeed, 60) + 0.4;
     } else if(type === 'debris'){
       obstacles.push({ type, x: Math.random()*(GAME_W-14), y:-20, w:14, h:14, vx:(Math.random()*2-1)*60, extraVy: 130 });
-    } else if(type === 'movingcloud'){
-      const w = 60 + Math.random()*50;
-      const h = 34 + Math.random()*14;
-      const dir = Math.random() < 0.5 ? -1 : 1;
-      const speed = 16 + Math.random()*14; // slow, one-way drift
-      obstacles.push({ type, x: Math.random()*(GAME_W-w), y:-60, w, h, vx: dir*speed });
     } else if(type === 'bird'){
       obstacles.push({ type, x: Math.random()*(GAME_W-34), y:-24, w:34, h:20, baseX: 0, t0: elapsed });
       obstacles[obstacles.length-1].baseX = obstacles[obstacles.length-1].x;
@@ -196,16 +198,14 @@
   }
 
   function spawnCloudWall(){
-    const gapWidth = Math.max(88, 150 - heightM/40);
-    const gapX = PLAY_LEFT + Math.random()*((PLAY_RIGHT-PLAY_LEFT) - gapWidth);
+    const gapW = Math.max(88, 150 - heightM/40);
+    const gapX = PLAY_LEFT + Math.random()*((PLAY_RIGHT-PLAY_LEFT) - gapW);
     const h = 46;
-    if(gapX - PLAY_LEFT > 4){
-      obstacles.push({ type:'cloud', x: PLAY_LEFT, y:-70, w: gapX-PLAY_LEFT, h, wall:true });
-    }
-    const rightStart = gapX+gapWidth;
-    if(PLAY_RIGHT - rightStart > 4){
-      obstacles.push({ type:'cloud', x: rightStart, y:-70, w: PLAY_RIGHT-rightStart, h, wall:true });
-    }
+    // Both slabs always exist, even at zero width, so that a gap which starts
+    // flush against one edge still has a slab there to grow once wind moves it.
+    obstacles.push({ type:'cloud', x: PLAY_LEFT, y:-70, w: gapX-PLAY_LEFT, h, wall:true, side:'left', gapX, gapW });
+    const rightStart = gapX+gapW;
+    obstacles.push({ type:'cloud', x: rightStart, y:-70, w: PLAY_RIGHT-rightStart, h, wall:true, side:'right', gapX, gapW });
     spawnTimer = Math.max(spawnTimer, 1.1);
   }
 
@@ -248,6 +248,10 @@
 
   function update(dt){
     elapsed += dt;
+
+    // the gauge only belongs on screen while you're actually flying
+    const wantGauge = (state === 'playing' && elapsed >= WIND_START);
+    windVisible = clamp(windVisible + (wantGauge ? dt*1.6 : -dt*3), 0, 1);
 
     // muzzle-flash sparks animate no matter what state we're in
     for(let i=muzzleParticles.length-1;i>=0;i--){
@@ -316,13 +320,28 @@
       }
 
       cloudWallTimer -= dt;
-      if(windCooldown > 0) windCooldown -= dt;
       if(cloudWallTimer <= 0){
         spawnCloudWall();
         cloudWallTimer = 8 + Math.random()*6;
       }
 
-      let windForce = 0;
+      if(elapsed >= WIND_START){
+        windTimer -= dt;
+        if(windTimer <= 0){
+          windTarget = Math.random() < WIND_CALM_CHANCE
+            ? 0
+            : (Math.random() < 0.5 ? -1 : 1) * (1 + Math.random()*(WIND_MAX-1));
+          windTimer = 12 + Math.random()*13;
+        }
+        // eased, never snapped: the gauge needle is always creeping somewhere
+        windSpeed += stepToward(windTarget - windSpeed, WIND_EASE*dt);
+      }
+      const windPx = windSpeed * WIND_PX_PER_MS;
+
+      player.x += windPx*dt;
+      // the drag target has to ride the wind too, otherwise a held finger keeps
+      // steering back to its old spot and silently cancels the drift out
+      if(dragTargetX !== null) dragTargetX = clamp(dragTargetX + windPx*dt, 0, GAME_W);
 
       for(let i=obstacles.length-1;i>=0;i--){
         const o = obstacles[i];
@@ -332,32 +351,25 @@
         } else if(o.type === 'bird'){
           o.y += scrollSpeed*dt;
           o.x = o.baseX + Math.sin((elapsed - o.t0)*3.2)*60;
-        } else if(o.type === 'movingcloud'){
-          o.y += scrollSpeed*dt;
-          o.x += o.vx*dt;
-          if(o.x + o.w < 0) o.x = GAME_W;
-          else if(o.x > GAME_W) o.x = -o.w;
         } else {
           o.y += scrollSpeed*dt;
+          if(o.wall){
+            // Slide the gap, not the slabs. Drifting the whole wall would tear a
+            // free hole open at whichever side edge it pulled away from.
+            o.gapX = clamp(o.gapX + windPx*dt, PLAY_LEFT, PLAY_RIGHT - o.gapW);
+            if(o.side === 'left'){ o.x = PLAY_LEFT; o.w = o.gapX - PLAY_LEFT; }
+            else { o.x = o.gapX + o.gapW; o.w = PLAY_RIGHT - o.x; }
+          } else {
+            o.x += windPx*dt;
+          }
         }
 
-        if(o.type === 'wind'){
-          if(player.y >= o.y && player.y <= o.y+o.h){
-            windForce += o.dir * o.force;
-          }
-        } else {
-          if(circleRectHit(player.x, player.y, player.r, o.x, o.y, o.w, o.h)){
-            triggerExplosion();
-          }
+        if(o.w > 1 && circleRectHit(player.x, player.y, player.r, o.x, o.y, o.w, o.h)){
+          triggerExplosion();
         }
 
         if(o.y > GAME_H + 100) obstacles.splice(i,1);
       }
-
-      player.x += windForce*dt;
-      // push the drag target by the same amount, or the shot would auto-correct
-      // against the gust and touch players would shrug off wind that keys can't
-      if(dragTargetX !== null) dragTargetX = clamp(dragTargetX + windForce*dt, 0, GAME_W);
 
       if(state === 'playing'){
         if(player.x - player.r <= PLAY_LEFT){
@@ -526,32 +538,9 @@
   function drawObstacles(){
     for(const o of obstacles){
       if(o.type === 'cloud'){
+        if(o.w <= 1) continue; // a wall slab squeezed to nothing by the drifting gap
         ctx.fillStyle = 'rgba(220,225,240,0.85)';
-        roundRect(o.x, o.y, o.w, o.h, 16);
-        ctx.fill();
-      } else if(o.type === 'wind'){
-        ctx.save();
-        ctx.globalAlpha = 0.22;
-        ctx.fillStyle = o.dir > 0 ? '#29f1ff' : '#ff2fb0';
-        ctx.fillRect(o.x, o.y, o.w, o.h);
-        ctx.globalAlpha = 0.4;
-        ctx.strokeStyle = ctx.fillStyle;
-        for(let i=0;i<8;i++){
-          ctx.beginPath();
-          ctx.moveTo(i*(GAME_W/8), o.y);
-          ctx.lineTo(i*(GAME_W/8) + o.dir*24, o.y+o.h);
-          ctx.stroke();
-        }
-        ctx.restore();
-      } else if(o.type === 'movingcloud'){
-        ctx.save();
-        ctx.globalAlpha = 0.28;
-        ctx.fillStyle = 'rgba(180,210,255,0.9)';
-        roundRect(o.x - o.vx*0.06, o.y, o.w, o.h, 16);
-        ctx.fill();
-        ctx.restore();
-        ctx.fillStyle = 'rgba(206,224,255,0.92)';
-        roundRect(o.x, o.y, o.w, o.h, 16);
+        roundRect(o.x, o.y, o.w, o.h, Math.min(16, o.w/2, o.h/2));
         ctx.fill();
       } else if(o.type === 'debris'){
         ctx.fillStyle = '#ffb14a';
@@ -639,6 +628,70 @@
     }
   }
 
+  function drawWindGauge(){
+    if(windVisible <= 0.01) return;
+    const speed = Math.abs(windSpeed);
+    const calm = speed < 0.15;
+    const strength = Math.min(1, speed / WIND_MAX);
+    const cx = GAME_W/2, cy = GAME_H - 52;
+    const w = 168, h = 44;
+
+    ctx.save();
+    ctx.globalAlpha = windVisible;
+
+    ctx.fillStyle = 'rgba(5,4,15,0.6)';
+    roundRect(cx-w/2, cy-h/2, w, h, 22);
+    ctx.fill();
+    ctx.strokeStyle = calm ? 'rgba(238,242,255,0.18)' : 'rgba(41,241,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(238,242,255,0.45)';
+    ctx.font = '9px "Hiragino Sans","Yu Gothic",system-ui,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('風向き', cx-w/2+16, cy-11);
+
+    if(calm){
+      ctx.fillStyle = 'rgba(238,242,255,0.7)';
+      ctx.font = 'bold 15px "Hiragino Sans","Yu Gothic",system-ui,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('無風', cx+12, cy+5);
+    } else {
+      // weak breeze reads cyan, a real gale reads hot pink
+      const col = lerpColor('#29f1ff', '#ff2fb0', strength);
+      const dir = windSpeed < 0 ? -1 : 1;
+      const len = 26 + strength*18;
+      const ax = cx - 40, ay = cy + 4;
+
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = col;
+      const tip = ax + dir*len/2;
+      ctx.beginPath();
+      ctx.moveTo(ax - dir*len/2, ay);
+      ctx.lineTo(tip, ay);
+      ctx.moveTo(tip - dir*9, ay-7);
+      ctx.lineTo(tip, ay);
+      ctx.lineTo(tip - dir*9, ay+7);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = col;
+      ctx.font = 'bold 17px system-ui,sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(speed.toFixed(1), cx+w/2-32, cy+4);
+      ctx.fillStyle = 'rgba(238,242,255,0.5)';
+      ctx.font = '10px system-ui,sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('m/s', cx+w/2-29, cy+5);
+    }
+    ctx.restore();
+  }
+
   function draw(){
     ctx.clearRect(0,0,GAME_W,GAME_H);
     drawSky();
@@ -658,6 +711,7 @@
     drawPlayer();
     drawParticles();
     drawMuzzleParticles();
+    drawWindGauge();
   }
 
   let lastTime = 0;
