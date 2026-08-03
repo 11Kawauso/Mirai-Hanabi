@@ -20,6 +20,10 @@
   const WIND_PX_PER_MS = 22;     // px/s of sideways drift per m/s -> 5m/s is 110px/s vs the shot's 260
   const WIND_EASE = 0.55;        // m/s the wind is allowed to change per second
   const WIND_CALM_CHANCE = 0.25; // how often a new target is "no wind at all"
+  // Each cloud catches the wind a bit differently. Always positive, so a cloud
+  // never sails against the wind — only slower or faster than its neighbours.
+  const WIND_FACTOR_MIN = 0.65, WIND_FACTOR_MAX = 1.35;
+  function randomWindFactor(){ return WIND_FACTOR_MIN + Math.random()*(WIND_FACTOR_MAX-WIND_FACTOR_MIN); }
 
   const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
@@ -188,7 +192,7 @@
     const type = weightedObstacleType();
     if(type === 'cloud'){
       const w = 70 + Math.random()*70;
-      obstacles.push({ type, x: Math.random()*(GAME_W-w), y: -60, w, h: 42 + Math.random()*18 });
+      obstacles.push({ type, x: Math.random()*(GAME_W-w), y: -60, w, h: 42 + Math.random()*18, windFactor: randomWindFactor() });
     } else if(type === 'debris'){
       obstacles.push({ type, x: Math.random()*(GAME_W-14), y:-20, w:14, h:14, vx:(Math.random()*2-1)*60, extraVy: 130 });
     } else if(type === 'bird'){
@@ -203,9 +207,11 @@
     const h = 46;
     // Both slabs always exist, even at zero width, so that a gap which starts
     // flush against one edge still has a slab there to grow once wind moves it.
-    obstacles.push({ type:'cloud', x: PLAY_LEFT, y:-70, w: gapX-PLAY_LEFT, h, wall:true, side:'left', gapX, gapW });
+    // They share one wind factor — differing ones would stretch the gap apart.
+    const windFactor = randomWindFactor();
+    obstacles.push({ type:'cloud', x: PLAY_LEFT, y:-70, w: gapX-PLAY_LEFT, h, wall:true, side:'left', gapX, gapW, windFactor });
     const rightStart = gapX+gapW;
-    obstacles.push({ type:'cloud', x: rightStart, y:-70, w: PLAY_RIGHT-rightStart, h, wall:true, side:'right', gapX, gapW });
+    obstacles.push({ type:'cloud', x: rightStart, y:-70, w: PLAY_RIGHT-rightStart, h, wall:true, side:'right', gapX, gapW, windFactor });
     spawnTimer = Math.max(spawnTimer, 1.1);
   }
 
@@ -353,14 +359,15 @@
           o.x = o.baseX + Math.sin((elapsed - o.t0)*3.2)*60;
         } else {
           o.y += scrollSpeed*dt;
+          const drift = windPx * o.windFactor * dt;
           if(o.wall){
             // Slide the gap, not the slabs. Drifting the whole wall would tear a
             // free hole open at whichever side edge it pulled away from.
-            o.gapX = clamp(o.gapX + windPx*dt, PLAY_LEFT, PLAY_RIGHT - o.gapW);
+            o.gapX = clamp(o.gapX + drift, PLAY_LEFT, PLAY_RIGHT - o.gapW);
             if(o.side === 'left'){ o.x = PLAY_LEFT; o.w = o.gapX - PLAY_LEFT; }
             else { o.x = o.gapX + o.gapW; o.w = PLAY_RIGHT - o.x; }
           } else {
-            o.x += windPx*dt;
+            o.x += drift;
           }
         }
 
