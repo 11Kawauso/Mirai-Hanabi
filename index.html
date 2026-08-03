@@ -15,18 +15,27 @@
   *{box-sizing:border-box;}
   html,body{
     margin:0; padding:0; height:100%;
+    /* dvh: iOS/Android のアドレスバー分だけ画面下が見切れるのを防ぐ（非対応環境は上の 100% にフォールバック） */
+    height:100dvh;
     background:#000;
     color:#eef2ff;
     font-family:"Hiragino Sans","Yu Gothic",system-ui,-apple-system,sans-serif;
     overflow:hidden;
+    /* 下方向ドラッグで引っ張り更新（pull-to-refresh）が走ってゲームがリロードされるのを防ぐ */
+    overscroll-behavior:none;
     -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none;
     user-select:none;
   }
   #wrap{
     position:relative;
     width:min(94vw, 480px, calc(96vh * 480 / 800));
+    width:min(94vw, 480px, calc(96dvh * 480 / 800));
     aspect-ratio:480/800;
     margin:2vh auto;
+    margin:2dvh auto;
+    /* ドラッグ操作をブラウザのスクロール/ズームに横取りさせない */
+    touch-action:none;
     border-radius:14px;
     overflow:hidden;
     box-shadow:0 0 0 1px rgba(255,255,255,0.08), 0 20px 60px rgba(123,47,247,0.35);
@@ -63,6 +72,8 @@
   }
   .overlay{
     position:absolute; inset:0;
+    /* HUD やゲーム内レイヤーより必ず手前に。ボタンが覆われて押せなくなるのを防ぐ */
+    z-index:10;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     text-align:center; padding:32px;
     background:radial-gradient(ellipse at 50% 30%, rgba(123,47,247,0.28), rgba(5,4,15,0.86) 70%);
@@ -105,12 +116,6 @@
   .result-best{
     font-size:13px; color:var(--gold); margin-bottom:26px;
   }
-  #touch-left,#touch-right{
-    position:absolute; bottom:0; width:50%; height:46%;
-    z-index:5;
-  }
-  #touch-left{ left:0; }
-  #touch-right{ right:0; }
 </style>
 </head>
 <body>
@@ -132,7 +137,7 @@
     <p class="title">ミライ花火</p>
     <p class="subtitle">その一発は、未来まで届くか。</p>
     <button class="btn" id="start-btn">打ち上げる</button>
-    <p class="howto">← → キー / A・D / 画面タップ左右で操作<br>↑ ↓ / W・S でほんの少しだけ上下にも動けます<br>雲・風・破片を避けて、少しでも高く。</p>
+    <p class="howto">画面を指でなぞって操作（上下にも少しだけ動けます）<br>PC は ← → / A・D、↑ ↓ / W・S<br>雲・風・破片を避けて、少しでも高く。</p>
   </div>
 
   <div class="overlay hidden" id="result-screen">
@@ -141,9 +146,6 @@
     <p class="result-best" id="result-best">自己ベスト 0m</p>
     <button class="btn" id="retry-btn">もう一度打ち上げる</button>
   </div>
-
-  <div id="touch-left"></div>
-  <div id="touch-right"></div>
 </div>
 
 <script>
@@ -155,11 +157,24 @@
   const LAUNCH_Y = GAME_H - 54; // cannon mouth height
   const LAUNCH_DURATION = 0.85;
   const VERTICAL_RANGE = 46; // small up/down wiggle room around the usual flight line
+  const MOVE_SPEED_X = 260;
+  const MOVE_SPEED_Y = 130;
 
+  const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-  canvas.width = GAME_W;
-  canvas.height = GAME_H;
+
+  // Draw at the device's real pixel density so the shot stays crisp on phones.
+  // The backing store grows, but every draw call below still works in 480x800 units.
+  function resizeCanvas(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(GAME_W * dpr);
+    canvas.height = Math.round(GAME_H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('orientationchange', resizeCanvas);
 
   const hudHeight = document.getElementById('hud-height');
   const hudBest = document.getElementById('hud-best');
@@ -169,8 +184,6 @@
   const resultBest = document.getElementById('result-best');
   const startBtn = document.getElementById('start-btn');
   const retryBtn = document.getElementById('retry-btn');
-  const touchLeft = document.getElementById('touch-left');
-  const touchRight = document.getElementById('touch-right');
 
   // session-only best height (resets on page reload; add localStorage yourself once this is hosted for real)
   let bestHeightM = 0;
@@ -186,6 +199,8 @@
   ];
 
   function lerp(a,b,t){ return a + (b-a)*t; }
+  function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
+  function stepToward(delta, maxStep){ return clamp(delta, -maxStep, maxStep); }
   function hexToRgb(hex){
     const v = parseInt(hex.slice(1),16);
     return [(v>>16)&255, (v>>8)&255, v&255];
@@ -222,6 +237,10 @@
   const player = { x: GAME_W/2, y: LAUNCH_Y, vx: 0, r: 9 };
   let keyLeft = false, keyRight = false;
   let moveUp = false, moveDown = false;
+  // drag steering: where the finger is asking the shot to go (null = not dragging)
+  let dragTargetX = null, dragTargetY = null;
+  let dragPointerId = null;
+  let lastPointer = null;
   let launchTimer = 0;
   let muzzleParticles = [];
   let cloudWallTimer = 6;
@@ -249,6 +268,8 @@
     player.x = GAME_W/2;
     player.y = LAUNCH_Y;
     player.vx = 0;
+    clearDrag();
+    hudHeight.textContent = '0m'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
     resultScreen.classList.add('hidden');
     spawnMuzzleFlash();
@@ -376,6 +397,8 @@
       if(t >= 1){
         player.y = PLAYER_Y;
         state = 'playing';
+        // a finger held through the launch animation shouldn't yank the shot on the first frame
+        if(dragPointerId !== null){ dragTargetX = player.x; dragTargetY = player.y; }
       }
     }
 
@@ -384,16 +407,20 @@
       scrollSpeed = Math.min(230, 90 + elapsed*1.0);
       heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
 
+      // keyboard wins while a key is held; otherwise the shot chases the drag target,
+      // capped at the same speed so touch is never easier than keys
       let vx = 0;
-      if(keyLeft) vx -= 260;
-      if(keyRight) vx += 260;
-      player.x += vx*dt;
+      if(keyLeft) vx -= MOVE_SPEED_X;
+      if(keyRight) vx += MOVE_SPEED_X;
+      if(vx !== 0) player.x += vx*dt;
+      else if(dragTargetX !== null) player.x += stepToward(dragTargetX - player.x, MOVE_SPEED_X*dt);
 
       let vy = 0;
-      if(moveUp) vy -= 130;
-      if(moveDown) vy += 130;
-      player.y += vy*dt;
-      player.y = Math.max(PLAYER_Y-VERTICAL_RANGE, Math.min(PLAYER_Y+VERTICAL_RANGE, player.y));
+      if(moveUp) vy -= MOVE_SPEED_Y;
+      if(moveDown) vy += MOVE_SPEED_Y;
+      if(vy !== 0) player.y += vy*dt;
+      else if(dragTargetY !== null) player.y += stepToward(dragTargetY - player.y, MOVE_SPEED_Y*dt);
+      player.y = clamp(player.y, PLAYER_Y-VERTICAL_RANGE, PLAYER_Y+VERTICAL_RANGE);
 
       spawnTimer -= dt;
       if(spawnTimer <= 0){
@@ -441,6 +468,9 @@
       }
 
       player.x += windForce*dt;
+      // push the drag target by the same amount, or the shot would auto-correct
+      // against the gust and touch players would shrug off wind that keys can't
+      if(dragTargetX !== null) dragTargetX = clamp(dragTargetX + windForce*dt, 0, GAME_W);
 
       if(state === 'playing'){
         if(player.x - player.r <= PLAY_LEFT){
@@ -741,15 +771,56 @@
     if(e.code === 'ArrowDown' || e.code === 'KeyS') moveDown = false;
   });
 
-  function bindTouch(el, onDown, onUp){
-    el.addEventListener('touchstart', (e)=>{ e.preventDefault(); onDown(); }, {passive:false});
-    el.addEventListener('touchend', (e)=>{ e.preventDefault(); onUp(); }, {passive:false});
-    el.addEventListener('mousedown', onDown);
-    el.addEventListener('mouseup', onUp);
-    el.addEventListener('mouseleave', onUp);
+  // ---- drag steering (touch + mouse, via Pointer Events) --------------------
+  // Relative drag, not absolute: the shot moves by however far the finger has
+  // travelled, so it never teleports underneath your thumb where you can't see it.
+
+  function toGameCoords(clientX, clientY){
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) * (GAME_W / rect.width),
+      y: (clientY - rect.top) * (GAME_H / rect.height)
+    };
   }
-  bindTouch(touchLeft, ()=>keyLeft=true, ()=>keyLeft=false);
-  bindTouch(touchRight, ()=>keyRight=true, ()=>keyRight=false);
+
+  function clearDrag(){
+    dragPointerId = null;
+    lastPointer = null;
+    dragTargetX = null;
+    dragTargetY = null;
+  }
+
+  wrap.addEventListener('pointerdown', (e) => {
+    // ignore while the start/result overlay is up so the buttons still work
+    if(state !== 'playing' && state !== 'launching') return;
+    if(dragPointerId !== null) return; // first finger down owns the shot
+    dragPointerId = e.pointerId;
+    lastPointer = toGameCoords(e.clientX, e.clientY);
+    dragTargetX = player.x;
+    dragTargetY = player.y;
+  });
+
+  window.addEventListener('pointermove', (e) => {
+    if(e.pointerId !== dragPointerId || lastPointer === null) return;
+    const g = toGameCoords(e.clientX, e.clientY);
+    // target stays clamped in bounds, otherwise dragging past the edge builds up
+    // slack you'd have to drag all the way back before the shot responds again
+    dragTargetX = clamp(dragTargetX + (g.x - lastPointer.x), 0, GAME_W);
+    dragTargetY = clamp(dragTargetY + (g.y - lastPointer.y), PLAYER_Y-VERTICAL_RANGE, PLAYER_Y+VERTICAL_RANGE);
+    lastPointer = g;
+  });
+
+  function endDrag(e){
+    if(e.pointerId === dragPointerId) clearDrag();
+  }
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+
+  // an incoming call or a swiped-away tab must not leave inputs stuck on
+  window.addEventListener('blur', () => {
+    clearDrag();
+    keyLeft = keyRight = moveUp = moveDown = false;
+  });
 
   startBtn.addEventListener('click', reset);
   retryBtn.addEventListener('click', reset);
