@@ -548,7 +548,7 @@
         ctx.arc(o.x+o.w/2, o.y+o.h/2, o.w/2, 0, Math.PI*2);
         ctx.fill();
       } else if(o.type === 'bird'){
-        ctx.fillStyle = 'rgba(20,22,35,0.9)';
+        ctx.fillStyle = 'rgba(248,250,255,0.95)';
         ctx.beginPath();
         ctx.moveTo(o.x, o.y+o.h/2);
         ctx.lineTo(o.x+o.w/2, o.y);
