@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ミライ花火 - どこまで届くか。</title>
+<style>
+  :root{
+    --pink:#ff2fb0;
+    --cyan:#29f1ff;
+    --purple:#7b2ff7;
+    --gold:#ffd23f;
+    --ink:#05040f;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:#000;
+    color:#eef2ff;
+    font-family:"Hiragino Sans","Yu Gothic",system-ui,-apple-system,sans-serif;
+    overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+    user-select:none;
+  }
+  #wrap{
+    position:relative;
+    width:min(94vw, 480px, calc(96vh * 480 / 800));
+    aspect-ratio:480/800;
+    margin:2vh auto;
+    border-radius:14px;
+    overflow:hidden;
+    box-shadow:0 0 0 1px rgba(255,255,255,0.08), 0 20px 60px rgba(123,47,247,0.35);
+    background:var(--ink);
+  }
+  canvas{
+    display:block;
+    width:100%;
+    height:100%;
+  }
+  #hud{
+    position:absolute; top:0; left:0; right:0;
+    padding:14px 16px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none;
+    font-variant-numeric:tabular-nums;
+  }
+  .hud-block{
+    display:flex; flex-direction:column;
+    line-height:1.1;
+  }
+  .hud-label{
+    font-size:10px; letter-spacing:0.14em;
+    color:rgba(238,242,255,0.55);
+  }
+  .hud-value{
+    font-size:22px; font-weight:800;
+    text-shadow:0 0 12px rgba(41,241,255,0.7);
+  }
+  .hud-value.best{
+    font-size:14px; font-weight:700;
+    color:var(--gold);
+    text-shadow:0 0 10px rgba(255,210,63,0.6);
+  }
+  .overlay{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:32px;
+    background:radial-gradient(ellipse at 50% 30%, rgba(123,47,247,0.28), rgba(5,4,15,0.86) 70%);
+    backdrop-filter:blur(2px);
+  }
+  .overlay.hidden{display:none;}
+  .title{
+    font-size:34px; font-weight:900; letter-spacing:0.06em;
+    background:linear-gradient(90deg, var(--pink), var(--cyan));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 0 30px rgba(255,47,176,0.35);
+    margin:0 0 6px;
+  }
+  .subtitle{
+    font-size:13px; color:rgba(238,242,255,0.75);
+    letter-spacing:0.05em;
+    margin:0 0 28px;
+  }
+  .btn{
+    appearance:none; border:none; cursor:pointer;
+    padding:14px 34px; border-radius:999px;
+    font-size:15px; font-weight:800; letter-spacing:0.08em;
+    color:var(--ink);
+    background:linear-gradient(90deg, var(--cyan), var(--pink));
+    box-shadow:0 8px 24px rgba(41,241,255,0.35);
+  }
+  .btn:active{ transform:translateY(1px); }
+  .howto{
+    margin-top:22px; font-size:11px; color:rgba(238,242,255,0.5);
+    line-height:1.7;
+  }
+  .result-big{
+    font-size:13px; color:rgba(238,242,255,0.6); letter-spacing:0.1em; margin-bottom:2px;
+  }
+  .result-num{
+    font-size:52px; font-weight:900; color:#fff;
+    text-shadow:0 0 24px rgba(255,47,176,0.6);
+    margin-bottom:18px;
+  }
+  .result-best{
+    font-size:13px; color:var(--gold); margin-bottom:26px;
+  }
+  #touch-left,#touch-right{
+    position:absolute; bottom:0; width:50%; height:46%;
+    z-index:5;
+  }
+  #touch-left{ left:0; }
+  #touch-right{ right:0; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="hud-block">
+      <span class="hud-label">高度</span>
+      <span class="hud-value" id="hud-height">0m</span>
+    </div>
+    <div class="hud-block" style="align-items:flex-end;">
+      <span class="hud-label">自己ベスト</span>
+      <span class="hud-value best" id="hud-best">0m</span>
+    </div>
+  </div>
+
+  <div class="overlay" id="start-screen">
+    <p class="title">ミライ花火</p>
+    <p class="subtitle">その一発は、未来まで届くか。</p>
+    <button class="btn" id="start-btn">打ち上げる</button>
+    <p class="howto">← → キー / A・D / 画面タップ左右で操作<br>↑ ↓ / W・S でほんの少しだけ上下にも動けます<br>雲・風・破片を避けて、少しでも高く。</p>
+  </div>
+
+  <div class="overlay hidden" id="result-screen">
+    <p class="result-big">到達高度</p>
+    <p class="result-num" id="result-height">0m</p>
+    <p class="result-best" id="result-best">自己ベスト 0m</p>
+    <button class="btn" id="retry-btn">もう一度打ち上げる</button>
+  </div>
+
+  <div id="touch-left"></div>
+  <div id="touch-right"></div>
+</div>
+
+<script>
+(() => {
+  const GAME_W = 480, GAME_H = 800;
+  const PLAYER_Y = GAME_H * 0.62;
+  const PIXELS_PER_METER = 6;
+  const PLAY_LEFT = 26, PLAY_RIGHT = GAME_W - 26; // side walls: hit them and it's over
+  const LAUNCH_Y = GAME_H - 54; // cannon mouth height
+  const LAUNCH_DURATION = 0.85;
+  const VERTICAL_RANGE = 46; // small up/down wiggle room around the usual flight line
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  canvas.width = GAME_W;
+  canvas.height = GAME_H;
+
+  const hudHeight = document.getElementById('hud-height');
+  const hudBest = document.getElementById('hud-best');
+  const startScreen = document.getElementById('start-screen');
+  const resultScreen = document.getElementById('result-screen');
+  const resultHeight = document.getElementById('result-height');
+  const resultBest = document.getElementById('result-best');
+  const startBtn = document.getElementById('start-btn');
+  const retryBtn = document.getElementById('retry-btn');
+  const touchLeft = document.getElementById('touch-left');
+  const touchRight = document.getElementById('touch-right');
+
+  // session-only best height (resets on page reload; add localStorage yourself once this is hosted for real)
+  let bestHeightM = 0;
+
+  const PALETTE = ['#ff2fb0', '#29f1ff', '#7b2ff7', '#ffd23f', '#ff6b6b', '#5eead4'];
+
+  const STAGES = [
+    { minH: 0,    top:'#050914', bottom:'#131a2c', grid:0.0, stars:0.15, cityAlpha:1.0 },
+    { minH: 120,  top:'#0d1730', bottom:'#22314f', grid:0.0, stars:0.3,  cityAlpha:0.0 },
+    { minH: 550,  top:'#171040', bottom:'#3a1f63', grid:0.35,stars:0.55, cityAlpha:0.0 },
+    { minH: 1000, top:'#120a30', bottom:'#4a1f74', grid:0.7, stars:0.75, cityAlpha:0.0 },
+    { minH: 1600, top:'#08051c', bottom:'#1c0a3a', grid:1.0, stars:1.0,  cityAlpha:0.0 }
+  ];
+
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function hexToRgb(hex){
+    const v = parseInt(hex.slice(1),16);
+    return [(v>>16)&255, (v>>8)&255, v&255];
+  }
+  function lerpColor(hexA, hexB, t){
+    const a = hexToRgb(hexA), b = hexToRgb(hexB);
+    const r = Math.round(lerp(a[0],b[0],t));
+    const g = Math.round(lerp(a[1],b[1],t));
+    const bl = Math.round(lerp(a[2],b[2],t));
+    return `rgb(${r},${g},${bl})`;
+  }
+  function getStage(heightM){
+    let cur = STAGES[0], next = STAGES[STAGES.length-1], t = 1;
+    for(let i=0;i<STAGES.length;i++){
+      if(heightM >= STAGES[i].minH){
+        cur = STAGES[i];
+        next = STAGES[i+1] || STAGES[i];
+        const range = (next.minH - cur.minH) || 1;
+        t = Math.min(1, (heightM - cur.minH) / range);
+      }
+    }
+    return { cur, next, t };
+  }
+
+  let state = 'start'; // start | playing | exploding | result
+  let heightM = 0;
+  let scrollSpeed = 0;
+  let spawnTimer = 0;
+  let obstacles = [];
+  let particles = [];
+  let stars = [];
+  let elapsed = 0;
+
+  const player = { x: GAME_W/2, y: LAUNCH_Y, vx: 0, r: 9 };
+  let keyLeft = false, keyRight = false;
+  let moveUp = false, moveDown = false;
+  let launchTimer = 0;
+  let muzzleParticles = [];
+  let cloudWallTimer = 6;
+  let windCooldown = 0;
+  let currentZoom = 1, zoomTarget = 1;
+
+  for(let i=0;i<70;i++){
+    stars.push({ x: Math.random()*GAME_W, y: Math.random()*GAME_H, r: Math.random()*1.6+0.4, tw: Math.random()*6.28 });
+  }
+
+  function reset(){
+    state = 'launching';
+    launchTimer = 0;
+    heightM = 0;
+    scrollSpeed = 90;
+    spawnTimer = 1.0;
+    cloudWallTimer = 5 + Math.random()*3;
+    windCooldown = 0;
+    currentZoom = 1;
+    zoomTarget = 1;
+    obstacles = [];
+    particles = [];
+    muzzleParticles = [];
+    elapsed = 0;
+    player.x = GAME_W/2;
+    player.y = LAUNCH_Y;
+    player.vx = 0;
+    startScreen.classList.add('hidden');
+    resultScreen.classList.add('hidden');
+    spawnMuzzleFlash();
+  }
+
+  function spawnMuzzleFlash(){
+    for(let i=0;i<26;i++){
+      const angle = -Math.PI/2 + (Math.random()-0.5)*1.1;
+      const speed = 80 + Math.random()*160;
+      muzzleParticles.push({
+        x: player.x, y: LAUNCH_Y+6,
+        vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
+        r: 2+Math.random()*3,
+        life: 0.35+Math.random()*0.25, maxLife: 0.5,
+        color: PALETTE[Math.floor(Math.random()*PALETTE.length)]
+      });
+    }
+  }
+
+  function weightedObstacleType(){
+    const pool = [{t:'cloud', w:5}, {t:'movingcloud', w:4}];
+    if(heightM > 150 && windCooldown <= 0) pool.push({t:'wind', w:3});
+    if(heightM > 300) pool.push({t:'debris', w:3});
+    if(heightM > 600) pool.push({t:'bird', w:3});
+    const total = pool.reduce((s,p)=>s+p.w,0);
+    let r = Math.random()*total;
+    for(const p of pool){ if(r < p.w) return p.t; r -= p.w; }
+    return 'cloud';
+  }
+
+  function spawnObstacle(){
+    const type = weightedObstacleType();
+    if(type === 'cloud'){
+      const w = 70 + Math.random()*70;
+      obstacles.push({ type, x: Math.random()*(GAME_W-w), y: -60, w, h: 42 + Math.random()*18 });
+    } else if(type === 'wind'){
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const h = 160;
+      obstacles.push({ type, x:0, y:-h, w: GAME_W, h, dir, force: 190 });
+      // don't let another gust start until this one has fully drifted off screen
+      windCooldown = (GAME_H + 120 + h) / Math.max(scrollSpeed, 60) + 0.4;
+    } else if(type === 'debris'){
+      obstacles.push({ type, x: Math.random()*(GAME_W-14), y:-20, w:14, h:14, vx:(Math.random()*2-1)*60, extraVy: 130 });
+    } else if(type === 'movingcloud'){
+      const w = 60 + Math.random()*50;
+      const h = 34 + Math.random()*14;
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const speed = 16 + Math.random()*14; // slow, one-way drift
+      obstacles.push({ type, x: Math.random()*(GAME_W-w), y:-60, w, h, vx: dir*speed });
+    } else if(type === 'bird'){
+      obstacles.push({ type, x: Math.random()*(GAME_W-34), y:-24, w:34, h:20, baseX: 0, t0: elapsed });
+      obstacles[obstacles.length-1].baseX = obstacles[obstacles.length-1].x;
+    }
+  }
+
+  function spawnCloudWall(){
+    const gapWidth = Math.max(88, 150 - heightM/40);
+    const gapX = PLAY_LEFT + Math.random()*((PLAY_RIGHT-PLAY_LEFT) - gapWidth);
+    const h = 46;
+    if(gapX - PLAY_LEFT > 4){
+      obstacles.push({ type:'cloud', x: PLAY_LEFT, y:-70, w: gapX-PLAY_LEFT, h, wall:true });
+    }
+    const rightStart = gapX+gapWidth;
+    if(PLAY_RIGHT - rightStart > 4){
+      obstacles.push({ type:'cloud', x: rightStart, y:-70, w: PLAY_RIGHT-rightStart, h, wall:true });
+    }
+    spawnTimer = Math.max(spawnTimer, 1.1);
+  }
+
+  function circleRectHit(cx, cy, cr, rx, ry, rw, rh){
+    const nx = Math.max(rx, Math.min(cx, rx+rw));
+    const ny = Math.max(ry, Math.min(cy, ry+rh));
+    const dx = cx-nx, dy = cy-ny;
+    return (dx*dx+dy*dy) < cr*cr;
+  }
+
+  function triggerExplosion(){
+    state = 'exploding';
+    const scale = Math.min(2.6, 1 + heightM/1100);
+    const count = Math.min(150, 28 + heightM/9);
+    zoomTarget = Math.max(0.25, 1 - scale*0.32); // bigger blast, more the world shrinks away
+    for(let i=0;i<count;i++){
+      const angle = Math.random()*Math.PI*2;
+      const speed = (90 + Math.random()*220) * (0.6 + scale*0.5);
+      particles.push({
+        x: player.x, y: player.y,
+        vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
+        r: (2 + Math.random()*4) * scale,
+        life: 0.9 + Math.random()*0.7,
+        maxLife: 0.9 + Math.random()*0.7,
+        color: PALETTE[Math.floor(Math.random()*PALETTE.length)]
+      });
+    }
+    if(heightM > bestHeightM) bestHeightM = heightM;
+  }
+
+  function endToResult(){
+    state = 'result';
+    resultHeight.textContent = Math.floor(heightM) + 'm';
+    resultBest.textContent = '自己ベスト ' + Math.floor(bestHeightM) + 'm';
+    hudBest.textContent = Math.floor(bestHeightM) + 'm';
+    resultScreen.classList.remove('hidden');
+  }
+
+  let explodeTimer = 0;
+
+  function update(dt){
+    elapsed += dt;
+
+    // muzzle-flash sparks animate no matter what state we're in
+    for(let i=muzzleParticles.length-1;i>=0;i--){
+      const p = muzzleParticles[i];
+      p.x += p.vx*dt; p.y += p.vy*dt;
+      p.vy += 260*dt;
+      p.life -= dt;
+      if(p.life <= 0) muzzleParticles.splice(i,1);
+    }
+
+    if(state === 'launching'){
+      launchTimer += dt;
+      const t = Math.min(1, launchTimer / LAUNCH_DURATION);
+      const eased = 1 - Math.pow(1-t, 3);
+      player.y = LAUNCH_Y + (PLAYER_Y - LAUNCH_Y) * eased;
+      player.x = GAME_W/2 + Math.sin(t*10) * (1-t) * 4;
+      if(t >= 1){
+        player.y = PLAYER_Y;
+        state = 'playing';
+      }
+    }
+
+    if(state === 'playing'){
+      // speed increases very gradually with time survived, not with height directly
+      scrollSpeed = Math.min(230, 90 + elapsed*1.0);
+      heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
+
+      let vx = 0;
+      if(keyLeft) vx -= 260;
+      if(keyRight) vx += 260;
+      player.x += vx*dt;
+
+      let vy = 0;
+      if(moveUp) vy -= 130;
+      if(moveDown) vy += 130;
+      player.y += vy*dt;
+      player.y = Math.max(PLAYER_Y-VERTICAL_RANGE, Math.min(PLAYER_Y+VERTICAL_RANGE, player.y));
+
+      spawnTimer -= dt;
+      if(spawnTimer <= 0){
+        spawnObstacle();
+        spawnTimer = Math.max(0.45, 1.15 - elapsed*0.01);
+      }
+
+      cloudWallTimer -= dt;
+      if(windCooldown > 0) windCooldown -= dt;
+      if(cloudWallTimer <= 0){
+        spawnCloudWall();
+        cloudWallTimer = 8 + Math.random()*6;
+      }
+
+      let windForce = 0;
+
+      for(let i=obstacles.length-1;i>=0;i--){
+        const o = obstacles[i];
+        if(o.type === 'debris'){
+          o.y += scrollSpeed*1.6*dt;
+          o.x += o.vx*dt;
+        } else if(o.type === 'bird'){
+          o.y += scrollSpeed*dt;
+          o.x = o.baseX + Math.sin((elapsed - o.t0)*3.2)*60;
+        } else if(o.type === 'movingcloud'){
+          o.y += scrollSpeed*dt;
+          o.x += o.vx*dt;
+          if(o.x + o.w < 0) o.x = GAME_W;
+          else if(o.x > GAME_W) o.x = -o.w;
+        } else {
+          o.y += scrollSpeed*dt;
+        }
+
+        if(o.type === 'wind'){
+          if(player.y >= o.y && player.y <= o.y+o.h){
+            windForce += o.dir * o.force;
+          }
+        } else {
+          if(circleRectHit(player.x, player.y, player.r, o.x, o.y, o.w, o.h)){
+            triggerExplosion();
+          }
+        }
+
+        if(o.y > GAME_H + 100) obstacles.splice(i,1);
+      }
+
+      player.x += windForce*dt;
+
+      if(state === 'playing'){
+        if(player.x - player.r <= PLAY_LEFT){
+          player.x = PLAY_LEFT + player.r;
+          triggerExplosion();
+        } else if(player.x + player.r >= PLAY_RIGHT){
+          player.x = PLAY_RIGHT - player.r;
+          triggerExplosion();
+        }
+      }
+
+      hudHeight.textContent = Math.floor(heightM) + 'm';
+    }
+
+    if(state === 'exploding'){
+      currentZoom += (zoomTarget - currentZoom) * Math.min(1, dt*5);
+      explodeTimer += dt;
+      for(let i=particles.length-1;i>=0;i--){
+        const p = particles[i];
+        p.vy += 220*dt;
+        p.x += p.vx*dt;
+        p.y += p.vy*dt;
+        p.life -= dt;
+        if(p.life <= 0) particles.splice(i,1);
+      }
+      if(explodeTimer > 1.7 || particles.length === 0){
+        explodeTimer = 0;
+        endToResult();
+      }
+    }
+  }
+
+  function drawSky(){
+    const { cur, next, t } = getStage(heightM);
+    const top = lerpColor(cur.top, next.top, t);
+    const bottom = lerpColor(cur.bottom, next.bottom, t);
+    const grad = ctx.createLinearGradient(0,0,0,GAME_H);
+    grad.addColorStop(0, top);
+    grad.addColorStop(1, bottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,GAME_W,GAME_H);
+  }
+
+  function drawBackgroundDetails(){
+    const { cur, next, t } = getStage(heightM);
+
+    const starDensity = lerp(cur.stars, next.stars, t);
+    ctx.save();
+    for(const s of stars){
+      const tw = 0.55 + 0.45*Math.sin(elapsed*2 + s.tw);
+      ctx.globalAlpha = starDensity * tw;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    const gridAmt = lerp(cur.grid, next.grid, t);
+    if(gridAmt > 0.01){
+      ctx.save();
+      ctx.globalAlpha = gridAmt * 0.5;
+      ctx.strokeStyle = '#29f1ff';
+      ctx.lineWidth = 1;
+      const spacing = 34;
+      const offset = (elapsed*40) % spacing;
+      for(let y = GAME_H - offset; y > GAME_H*0.35; y -= spacing){
+        ctx.beginPath();
+        ctx.moveTo(0,y);
+        ctx.lineTo(GAME_W,y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = gridAmt * 0.35;
+      for(let x=-GAME_W; x<GAME_W*2; x+=48){
+        ctx.beginPath();
+        ctx.moveTo(GAME_W/2 + (x-GAME_W/2)*0.2, GAME_H*0.35);
+        ctx.lineTo(x, GAME_H);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    const buildings = [75,150,105,215,120,175,90,235,110,160];
+    const cityDrop = heightM * PIXELS_PER_METER; // sinks away at the same rate the world scrolls past
+    const maxBuildingH = Math.max(...buildings);
+    if(cityDrop < GAME_H + maxBuildingH + 40){
+      ctx.save();
+      ctx.fillStyle = '#020208';
+      let x = 0;
+      const bw = GAME_W / buildings.length;
+      for(const h of buildings){
+        ctx.fillRect(x, GAME_H - h + cityDrop, bw-3, h);
+        x += bw;
+      }
+      ctx.fillStyle = 'rgba(255,190,90,0.65)';
+      for(let i=0;i<14;i++){
+        ctx.fillRect((i*bw*0.7)%GAME_W + 6, GAME_H-20-Math.random()*60 + cityDrop, 3, 3);
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawWalls(){
+    const wallW = PLAY_LEFT;
+    ctx.save();
+    const glowL = ctx.createLinearGradient(0,0,wallW,0);
+    glowL.addColorStop(0, 'rgba(255,47,176,0.55)');
+    glowL.addColorStop(1, 'rgba(255,47,176,0)');
+    ctx.fillStyle = glowL;
+    ctx.fillRect(0,0,wallW,GAME_H);
+    const glowR = ctx.createLinearGradient(GAME_W,0,GAME_W-wallW,0);
+    glowR.addColorStop(0, 'rgba(255,47,176,0.55)');
+    glowR.addColorStop(1, 'rgba(255,47,176,0)');
+    ctx.fillStyle = glowR;
+    ctx.fillRect(GAME_W-wallW,0,wallW,GAME_H);
+    ctx.strokeStyle = 'rgba(255,47,176,0.9)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(PLAY_LEFT,0); ctx.lineTo(PLAY_LEFT,GAME_H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PLAY_RIGHT,0); ctx.lineTo(PLAY_RIGHT,GAME_H); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawCannon(){
+    const cx = GAME_W/2, baseY = GAME_H-4;
+    ctx.save();
+    ctx.fillStyle = '#1b1830';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY, 50, 14, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#242042';
+    roundRect(cx-30, baseY-64, 60, 64, 14);
+    ctx.fill();
+    ctx.fillStyle = '#05040f';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY-64, 26, 10, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(41,241,255,0.55)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY-64, 26, 10, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawObstacles(){
+    for(const o of obstacles){
+      if(o.type === 'cloud'){
+        ctx.fillStyle = 'rgba(220,225,240,0.85)';
+        roundRect(o.x, o.y, o.w, o.h, 16);
+        ctx.fill();
+      } else if(o.type === 'wind'){
+        ctx.save();
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = o.dir > 0 ? '#29f1ff' : '#ff2fb0';
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = ctx.fillStyle;
+        for(let i=0;i<8;i++){
+          ctx.beginPath();
+          ctx.moveTo(i*(GAME_W/8), o.y);
+          ctx.lineTo(i*(GAME_W/8) + o.dir*24, o.y+o.h);
+          ctx.stroke();
+        }
+        ctx.restore();
+      } else if(o.type === 'movingcloud'){
+        ctx.save();
+        ctx.globalAlpha = 0.28;
+        ctx.fillStyle = 'rgba(180,210,255,0.9)';
+        roundRect(o.x - o.vx*0.06, o.y, o.w, o.h, 16);
+        ctx.fill();
+        ctx.restore();
+        ctx.fillStyle = 'rgba(206,224,255,0.92)';
+        roundRect(o.x, o.y, o.w, o.h, 16);
+        ctx.fill();
+      } else if(o.type === 'debris'){
+        ctx.fillStyle = '#ffb14a';
+        ctx.beginPath();
+        ctx.arc(o.x+o.w/2, o.y+o.h/2, o.w/2, 0, Math.PI*2);
+        ctx.fill();
+      } else if(o.type === 'bird'){
+        ctx.fillStyle = 'rgba(20,22,35,0.9)';
+        ctx.beginPath();
+        ctx.moveTo(o.x, o.y+o.h/2);
+        ctx.lineTo(o.x+o.w/2, o.y);
+        ctx.lineTo(o.x+o.w, o.y+o.h/2);
+        ctx.lineTo(o.x+o.w/2, o.y+o.h);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  function roundRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function drawPlayer(){
+    if(state === 'exploding') return;
+    ctx.save();
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = '#ffd23f';
+    ctx.fillStyle = '#fff6d8';
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,210,63,0.5)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y+player.r);
+    ctx.lineTo(player.x, player.y+player.r+14);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawMuzzleParticles(){
+    for(const p of muzzleParticles){
+      const alpha = Math.max(0, p.life/p.maxLife);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawParticles(){
+    for(const p of particles){
+      const alpha = Math.max(0, p.life / p.maxLife);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,GAME_W,GAME_H);
+    drawSky();
+    drawBackgroundDetails();
+    drawWalls();
+    if(state === 'start' || state === 'launching') drawCannon();
+    ctx.save();
+    if(state === 'exploding'){
+      const cx = GAME_W/2, cy = GAME_H/2;
+      ctx.translate(cx, cy);
+      ctx.scale(currentZoom, currentZoom);
+      ctx.translate(-cx, -cy);
+    }
+    drawObstacles();
+    ctx.restore();
+    drawPlayer();
+    drawParticles();
+    drawMuzzleParticles();
+  }
+
+  let lastTime = 0;
+  function loop(ts){
+    if(!lastTime) lastTime = ts;
+    const dt = Math.min(0.05, (ts-lastTime)/1000);
+    lastTime = ts;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  window.addEventListener('keydown', (e) => {
+    if(e.code === 'ArrowLeft' || e.code === 'KeyA') keyLeft = true;
+    if(e.code === 'ArrowRight' || e.code === 'KeyD') keyRight = true;
+    if(e.code === 'ArrowUp' || e.code === 'KeyW') moveUp = true;
+    if(e.code === 'ArrowDown' || e.code === 'KeyS') moveDown = true;
+    if(e.code === 'Space' || e.code === 'Enter'){
+      if(state === 'start' || state === 'result') reset();
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if(e.code === 'ArrowLeft' || e.code === 'KeyA') keyLeft = false;
+    if(e.code === 'ArrowRight' || e.code === 'KeyD') keyRight = false;
+    if(e.code === 'ArrowUp' || e.code === 'KeyW') moveUp = false;
+    if(e.code === 'ArrowDown' || e.code === 'KeyS') moveDown = false;
+  });
+
+  function bindTouch(el, onDown, onUp){
+    el.addEventListener('touchstart', (e)=>{ e.preventDefault(); onDown(); }, {passive:false});
+    el.addEventListener('touchend', (e)=>{ e.preventDefault(); onUp(); }, {passive:false});
+    el.addEventListener('mousedown', onDown);
+    el.addEventListener('mouseup', onUp);
+    el.addEventListener('mouseleave', onUp);
+  }
+  bindTouch(touchLeft, ()=>keyLeft=true, ()=>keyLeft=false);
+  bindTouch(touchRight, ()=>keyRight=true, ()=>keyRight=false);
+
+  startBtn.addEventListener('click', reset);
+  retryBtn.addEventListener('click', reset);
+})();
+</script>
+</body>
+</html>
