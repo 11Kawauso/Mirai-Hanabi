@@ -9,33 +9,96 @@
 <script src="script.js" defer></script>
 </head>
 <body>
-<div id="wrap">
-  <canvas id="game"></canvas>
+<div id="stage">
 
-  <div id="hud">
-    <div class="hud-block">
-      <span class="hud-label">高度</span>
-      <span class="hud-value" id="hud-height">0m</span>
+  <!-- 画面が広いときだけ出る解説。狭い端末では非表示になる -->
+  <aside id="guide">
+    <p class="g-eyebrow">新潟デジコングランプリ 出展作品</p>
+    <h1 class="g-title">ミライ花火</h1>
+    <p class="g-lead">その一発は、未来まで届くか。<br>長岡花火をモチーフにした、打ち上げ高度を競うゲームです。</p>
+
+    <section class="g-sec">
+      <h2 class="g-h">あそびかた</h2>
+      <ul class="g-list">
+        <li><b>スマホ</b>　画面を指でなぞると、その方向へ花火が動きます</li>
+        <li><b>PC</b>　<kbd>←</kbd><kbd>→</kbd> または <kbd>A</kbd><kbd>D</kbd>、<kbd>↑</kbd><kbd>↓</kbd> または <kbd>W</kbd><kbd>S</kbd></li>
+        <li>上下に動ける幅はごくわずかです。基本は左右でよけます</li>
+      </ul>
+    </section>
+
+    <section class="g-sec">
+      <h2 class="g-h">終わってしまう条件</h2>
+      <ul class="g-list g-list-chips">
+        <li><span class="g-chip g-chip-wall"></span><b>左右のピンクの壁</b>　触れた瞬間に開花して終了です。風に押されて寄っていくので注意</li>
+        <li><span class="g-chip g-chip-cloud"></span><b>障害物への接触</b>　どれも一発で終わります</li>
+      </ul>
+    </section>
+
+    <section class="g-sec">
+      <h2 class="g-h">障害物</h2>
+      <ul class="g-list g-list-chips">
+        <li><span class="g-chip g-chip-cloud"></span><b>雲</b>　最初から出ます。ふわふわ流れてくるだけですが数が多いです</li>
+        <li><span class="g-chip g-chip-wallcloud"></span><b>雲の壁</b>　横一列にふさぎます。どこか一箇所だけ空いた隙間を狙って抜けます</li>
+        <li><span class="g-chip g-chip-debris"></span><b>破片</b>　<b>300m</b>から。落ちてくる速さが他より速く、横にも滑ります</li>
+        <li><span class="g-chip g-chip-bird"></span><b>鳥</b>　<b>600m</b>から。左右に揺れながら降りてくるので、進路が読みにくいです</li>
+      </ul>
+    </section>
+
+    <section class="g-sec">
+      <h2 class="g-h">風を読む</h2>
+      <ul class="g-list">
+        <li>打ち上げから<b>約3秒後</b>、画面下に風向きと風速のゲージが出ます</li>
+        <li>矢印の向きへ<b>勝手に流されます</b>。1m/s ならごくわずか、5m/s ならかなり強く押されます</li>
+        <li>強い風ほどゲージがシアンからピンクに変わります</li>
+        <li>風向きと風速は<b>数十秒ごとに移り変わり</b>、無風になることもあります</li>
+        <li>雲も同じ風に流されます。ただし流されやすさは雲ごとに違うので、間隔が刻々と変わります</li>
+      </ul>
+    </section>
+
+    <section class="g-sec">
+      <h2 class="g-h">長岡花火について</h2>
+      <p class="g-body">
+        新潟県長岡市で毎年8月2日・3日に開かれる「長岡まつり大花火大会」は、日本三大花火大会のひとつに数えられます。
+      </p>
+      <p class="g-body">
+        1945年8月1日の長岡空襲で亡くなった方への慰霊と、戦災からの復興への願いが込められた花火大会です。
+        名物の<b>正三尺玉</b>や、中越地震からの復興を願って打ち上げられる<b>フェニックス</b>が知られています。
+      </p>
+      <p class="g-body">
+        「どこまで高く打ち上がるか」を追いかけるこのゲームは、その願いを未来へ届けるイメージから作りました。
+      </p>
+    </section>
+  </aside>
+
+  <div id="wrap">
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+      <div class="hud-block">
+        <span class="hud-label">高度</span>
+        <span class="hud-value" id="hud-height">0m</span>
+      </div>
+      <div class="hud-block right">
+        <span class="hud-label">自己ベスト</span>
+        <span class="hud-value best" id="hud-best">0m</span>
+      </div>
     </div>
-    <div class="hud-block right">
-      <span class="hud-label">自己ベスト</span>
-      <span class="hud-value best" id="hud-best">0m</span>
+
+    <div class="overlay" id="start-screen">
+      <p class="title">ミライ花火</p>
+      <p class="subtitle">その一発は、未来まで届くか。</p>
+      <button class="btn" id="start-btn">打ち上げる</button>
+      <p class="howto">画面を指でなぞって操作（上下にも少しだけ動けます）<br>PC は ← → / A・D、↑ ↓ / W・S<br>画面下の風に流されます。雲・破片・鳥を避けて、少しでも高く。</p>
+    </div>
+
+    <div class="overlay hidden" id="result-screen">
+      <p class="result-big">到達高度</p>
+      <p class="result-num" id="result-height">0m</p>
+      <p class="result-best" id="result-best">自己ベスト 0m</p>
+      <button class="btn" id="retry-btn">もう一度打ち上げる</button>
     </div>
   </div>
 
-  <div class="overlay" id="start-screen">
-    <p class="title">ミライ花火</p>
-    <p class="subtitle">その一発は、未来まで届くか。</p>
-    <button class="btn" id="start-btn">打ち上げる</button>
-    <p class="howto">画面を指でなぞって操作（上下にも少しだけ動けます）<br>PC は ← → / A・D、↑ ↓ / W・S<br>画面下の風に流されます。雲・破片・鳥を避けて、少しでも高く。</p>
-  </div>
-
-  <div class="overlay hidden" id="result-screen">
-    <p class="result-big">到達高度</p>
-    <p class="result-num" id="result-height">0m</p>
-    <p class="result-best" id="result-best">自己ベスト 0m</p>
-    <button class="btn" id="retry-btn">もう一度打ち上げる</button>
-  </div>
 </div>
 </body>
 </html>
