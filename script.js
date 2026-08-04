@@ -29,6 +29,9 @@
   // edges rather than hitting the limit and freezing on the spot.
   const WALL_WIND_SCALE = 0.35;
   const WALL_EDGE_EASE = 70; // px of runway over which the gap eases to a halt
+  // Clear sky kept above and below a cloud wall. Floor in px so it always looks
+  // like a corridor; scaled by speed so it's always ~1.1s of reaction time.
+  const WALL_CLEAR_MIN = 160, WALL_CLEAR_SEC = 1.1;
 
   const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
@@ -114,6 +117,7 @@
   let launchTimer = 0;
   let muzzleParticles = [];
   let cloudWallTimer = 6;
+  let wallPending = false; // a wall is due and is waiting for a clear corridor
   let currentZoom = 1, zoomTarget = 1;
   let boost = 0; // 1 right after firing, eased to 0 over BOOST_DURATION
   let windSpeed = 0;   // signed m/s, negative = left
@@ -147,6 +151,7 @@
     scrollSpeed = 90;
     spawnTimer = 1.0;
     cloudWallTimer = 5 + Math.random()*3;
+    wallPending = false;
     currentZoom = 1;
     zoomTarget = 1;
     obstacles = [];
@@ -193,9 +198,25 @@
     return 'cloud';
   }
 
+  // Free clouds and wall slabs both fall at exactly scrollSpeed, so the vertical
+  // gap they have at spawn is the gap they keep forever. Enforcing it once here
+  // is enough to guarantee the wall's opening never gets corked.
+  function wallClearance(){ return Math.max(WALL_CLEAR_MIN, scrollSpeed*WALL_CLEAR_SEC); }
+  function cloudNear(y, dist, wantWall){
+    for(const o of obstacles){
+      if(o.type !== 'cloud' || !!o.wall !== wantWall) continue;
+      if(Math.abs(o.y - y) < dist) return true;
+    }
+    return false;
+  }
+
   function spawnObstacle(){
     const type = weightedObstacleType();
     if(type === 'cloud'){
+      // hold off while a wall is due, otherwise newly spawned clouds keep
+      // refilling the corridor and the wall can never find room to appear
+      if(wallPending) return;
+      if(cloudNear(-60, wallClearance(), true)) return;
       const w = 70 + Math.random()*70;
       obstacles.push({ type, x: Math.random()*(GAME_W-w), y: -60, w, h: 42 + Math.random()*18, windFactor: randomWindFactor() });
     } else if(type === 'debris'){
@@ -217,7 +238,6 @@
     obstacles.push({ type:'cloud', x: PLAY_LEFT, y:-70, w: gapX-PLAY_LEFT, h, wall:true, side:'left', gapX, gapW, windFactor });
     const rightStart = gapX+gapW;
     obstacles.push({ type:'cloud', x: rightStart, y:-70, w: PLAY_RIGHT-rightStart, h, wall:true, side:'right', gapX, gapW, windFactor });
-    spawnTimer = Math.max(spawnTimer, 1.1);
   }
 
   function circleRectHit(cx, cy, cr, rx, ry, rw, rh){
@@ -331,8 +351,12 @@
       }
 
       cloudWallTimer -= dt;
-      if(cloudWallTimer <= 0){
+      if(cloudWallTimer <= 0) wallPending = true;
+      // wait for a clear corridor before dropping the wall in. Cloud spawning is
+      // paused while pending, so the strays always fall clear within ~2s.
+      if(wallPending && !cloudNear(-70, wallClearance(), false)){
         spawnCloudWall();
+        wallPending = false;
         cloudWallTimer = 8 + Math.random()*6;
       }
 
