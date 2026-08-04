@@ -754,23 +754,32 @@
     ctx.restore();
   }
 
+  // Drawn OUTSIDE the camera transform, applying the zoom by hand. The boundary
+  // lines still converge as the camera pulls back, but the out-of-bounds glow is
+  // stretched out to the frame edge. Scaling the band as a whole would drag it
+  // inward and leave bare sky sitting where the boundary ought to be, which
+  // reads as the play area having shrunk.
   function drawWalls(){
-    const wallW = PLAY_LEFT;
+    const z = (state === 'exploding') ? currentZoom : 1;
+    const cx = GAME_W/2;
+    const left = cx + (PLAY_LEFT - cx)*z;
+    const right = cx + (PLAY_RIGHT - cx)*z;
+
     ctx.save();
-    const glowL = ctx.createLinearGradient(0,0,wallW,0);
+    const glowL = ctx.createLinearGradient(0,0,left,0);
     glowL.addColorStop(0, 'rgba(255,47,176,0.55)');
     glowL.addColorStop(1, 'rgba(255,47,176,0)');
     ctx.fillStyle = glowL;
-    ctx.fillRect(0,0,wallW,GAME_H);
-    const glowR = ctx.createLinearGradient(GAME_W,0,GAME_W-wallW,0);
+    ctx.fillRect(0,0,left,GAME_H);
+    const glowR = ctx.createLinearGradient(GAME_W,0,right,0);
     glowR.addColorStop(0, 'rgba(255,47,176,0.55)');
     glowR.addColorStop(1, 'rgba(255,47,176,0)');
     ctx.fillStyle = glowR;
-    ctx.fillRect(GAME_W-wallW,0,wallW,GAME_H);
+    ctx.fillRect(right,0,GAME_W-right,GAME_H);
     ctx.strokeStyle = 'rgba(255,47,176,0.9)';
     ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(PLAY_LEFT,0); ctx.lineTo(PLAY_LEFT,GAME_H); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(PLAY_RIGHT,0); ctx.lineTo(PLAY_RIGHT,GAME_H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(left,0); ctx.lineTo(left,GAME_H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(right,0); ctx.lineTo(right,GAME_H); ctx.stroke();
     ctx.restore();
   }
 
@@ -981,6 +990,7 @@
     drawSky();
     drawBackgroundDetails();
     drawSpeedLines();
+    drawWalls(); // outside the transform - it applies the zoom itself
 
     // Everything that lives in the world goes inside the pull-back, the burst
     // above all - it used to be drawn after the restore, so the scenery shrank
@@ -994,7 +1004,6 @@
       ctx.scale(currentZoom, currentZoom);
       ctx.translate(-cx, -cy);
     }
-    drawWalls();
     drawCannon(); // self-hides once it has scrolled past the bottom edge
     drawObstacles();
     drawPlayer();
