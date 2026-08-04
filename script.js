@@ -743,7 +743,15 @@
   }
   requestAnimationFrame(loop);
 
+  // Keys the game claims. The browser's default action for these is scrolling,
+  // which would drag the side panel up and down while you're steering, so the
+  // default is suppressed whether or not the game is currently using the key.
+  const GAME_KEYS = new Set([
+    'ArrowLeft','ArrowRight','ArrowUp','ArrowDown','KeyA','KeyD','KeyW','KeyS','Space'
+  ]);
+
   window.addEventListener('keydown', (e) => {
+    if(GAME_KEYS.has(e.code)) e.preventDefault();
     if(e.code === 'ArrowLeft' || e.code === 'KeyA') keyLeft = true;
     if(e.code === 'ArrowRight' || e.code === 'KeyD') keyRight = true;
     if(e.code === 'ArrowUp' || e.code === 'KeyW') moveUp = true;
