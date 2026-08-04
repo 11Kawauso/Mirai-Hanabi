@@ -32,6 +32,11 @@
   // Clear sky kept above and below a cloud wall. Floor in px so it always looks
   // like a corridor; scaled by speed so it's always ~1.1s of reaction time.
   const WALL_CLEAR_MIN = 160, WALL_CLEAR_SEC = 1.1;
+  // Burst physics. Drag is what makes a real shell bloom fast then hang, rather
+  // than every spark sprinting off at a constant speed.
+  const BURST_DRAG = 1.35;     // velocity decay per second
+  const BURST_GRAVITY = 110;   // gentle, so the flower hangs before it droops
+  const BURST_FIT = 200;       // on-screen radius the camera pulls back to frame
 
   const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
@@ -419,26 +424,32 @@
     // a ball still reads with a handful of sparks; a heart does not, so shaped
     // shells get a floor to stay legible even on a low, early death
     if(shapeFn) count = Math.max(110, count);
-    zoomTarget = Math.max(0.25, 1 - scale*0.32); // bigger blast, more the world shrinks away
+    const push = 0.6 + scale*0.5;
+    // With drag, a spark coasts to v0/BURST_DRAG - so the fastest spark tells us
+    // how wide the flower opens, and gravity sags it further than that. The
+    // camera pulls back just enough to frame the result; small bursts need none.
+    const reach = ((shapeFn ? 215 : 250) * push + BURST_GRAVITY) / BURST_DRAG;
+    zoomTarget = clamp(BURST_FIT / reach, 0.4, 1);
+
     for(let i=0;i<count;i++){
       let vx, vy;
       if(shapeFn){
         // walk the outline in order so the figure actually forms, with a little
         // jitter in position and speed so it reads as sparks, not a wireframe
         const p = shapeFn((i + Math.random()*0.7) / count);
-        const speed = (175 + Math.random()*65) * (0.6 + scale*0.5);
+        const speed = (180 + Math.random()*35) * push;
         vx = p[0]*speed; vy = p[1]*speed;
       } else {
         const angle = Math.random()*Math.PI*2;
-        const speed = (90 + Math.random()*220) * (0.6 + scale*0.5);
+        const speed = (70 + Math.random()*180) * push;
         vx = Math.cos(angle)*speed; vy = Math.sin(angle)*speed;
       }
       particles.push({
         x: player.x, y: player.y,
         vx, vy,
         r: Math.min(18, (2 + Math.random()*4) * scale),
-        life: 0.9 + Math.random()*0.7,
-        maxLife: 0.9 + Math.random()*0.7,
+        life: 1.5 + Math.random()*0.9,
+        maxLife: 2.4,
         color: sk.palette[Math.floor(Math.random()*sk.palette.length)]
       });
     }
@@ -633,17 +644,21 @@
     }
 
     if(state === 'exploding'){
-      currentZoom += (zoomTarget - currentZoom) * Math.min(1, dt*5);
+      // eased slowly enough that you watch the camera pull back, not blink and miss it
+      currentZoom += (zoomTarget - currentZoom) * Math.min(1, dt*3.2);
       explodeTimer += dt;
+      const drag = Math.exp(-BURST_DRAG*dt); // frame-rate independent decay
       for(let i=particles.length-1;i>=0;i--){
         const p = particles[i];
-        p.vy += 220*dt;
+        p.vx *= drag;
+        p.vy *= drag;
+        p.vy += BURST_GRAVITY*dt;
         p.x += p.vx*dt;
         p.y += p.vy*dt;
         p.life -= dt;
         if(p.life <= 0) particles.splice(i,1);
       }
-      if(explodeTimer > 1.7 || particles.length === 0){
+      if(explodeTimer > 2.5 || particles.length === 0){
         explodeTimer = 0;
         endToResult();
       }
@@ -966,8 +981,12 @@
     drawSky();
     drawBackgroundDetails();
     drawSpeedLines();
-    drawWalls();
-    drawCannon(); // self-hides once it has scrolled past the bottom edge
+
+    // Everything that lives in the world goes inside the pull-back, the burst
+    // above all - it used to be drawn after the restore, so the scenery shrank
+    // while the shell stayed life-size and you couldn't tell how big it got.
+    // Sky and stars stay put: they're the far backdrop, and scaling them down
+    // would just expose empty corners.
     ctx.save();
     if(state === 'exploding'){
       const cx = GAME_W/2, cy = GAME_H/2;
@@ -975,12 +994,15 @@
       ctx.scale(currentZoom, currentZoom);
       ctx.translate(-cx, -cy);
     }
+    drawWalls();
+    drawCannon(); // self-hides once it has scrolled past the bottom edge
     drawObstacles();
-    ctx.restore();
     drawPlayer();
     drawParticles();
     drawMuzzleParticles();
-    drawWindGauge();
+    ctx.restore();
+
+    drawWindGauge(); // HUD, never scaled
   }
 
   let lastTime = 0;
