@@ -79,6 +79,36 @@
   let bestHeightM = Math.max(0, parseFloat(load(STORE_BEST, '0')) || 0);
   let bestBeforeRun = bestHeightM; // to spot skins unlocked by the run just finished
 
+  // ---- burst shapes --------------------------------------------------------
+  // Japanese "katamono" shells open into a figure rather than a ball. Each
+  // function walks the outline for t in [0,1) and returns a direction vector
+  // (roughly unit length) that a spark is fired along. Canvas y points down, so
+  // anything that should read upright is negated here.
+  const SHAPES = {
+    star(t){                       // five points, outer radius 1, inner 0.42
+      const v = i => {
+        const r = (i % 2 === 0) ? 1 : 0.42;
+        const a = -Math.PI/2 + i*Math.PI/5;
+        return [Math.cos(a)*r, Math.sin(a)*r];
+      };
+      const s = t*10, e = Math.floor(s), f = s - e;
+      const a = v(e % 10), b = v((e+1) % 10);
+      return [a[0] + (b[0]-a[0])*f, a[1] + (b[1]-a[1])*f];
+    },
+    square(t){
+      const pts = [[-1,-1],[1,-1],[1,1],[-1,1]];
+      const s = t*4, e = Math.floor(s), f = s - e;
+      const a = pts[e % 4], b = pts[(e+1) % 4];
+      return [a[0] + (b[0]-a[0])*f, a[1] + (b[1]-a[1])*f];
+    },
+    heart(t){                      // classic 16sin³ / 13cos… curve, scaled to ~1
+      const a = t*Math.PI*2;
+      const x = 16*Math.pow(Math.sin(a), 3);
+      const y = 13*Math.cos(a) - 5*Math.cos(2*a) - 2*Math.cos(3*a) - Math.cos(4*a);
+      return [x/17, -y/17];
+    }
+  };
+
   // ---- skins ---------------------------------------------------------------
   // Purely cosmetic: shot colour, exhaust trail, and the burst it opens into.
   // Unlocked by best height so there's a reason to keep climbing.
@@ -88,45 +118,52 @@
       trailFrom:'rgba(255,210,63,0.55)', trailTo:'rgba(255,120,40,0)',
       palette:['#ff2fb0','#29f1ff','#7b2ff7','#ffd23f','#ff6b6b','#5eead4'], burst:1 },
 
-    { id:'sousei', name:'蒼星', unlock:500,
+    { id:'sousei', name:'蒼星', unlock:300,
       core:'#e8fbff', glow:'#29f1ff',
       trailFrom:'rgba(41,241,255,0.55)', trailTo:'rgba(60,120,255,0)',
       palette:['#29f1ff','#5eead4','#7bdcff','#a5b4fc','#e8fbff','#3b82f6'], burst:1 },
 
-    { id:'guren', name:'紅蓮', unlock:1500,
-      core:'#fff0ec', glow:'#ff3b30',
-      trailFrom:'rgba(255,59,48,0.6)', trailTo:'rgba(150,20,20,0)',
-      palette:['#ff3b30','#ff6b6b','#e11d48','#ff8a3d','#ffb4a2','#b91c1c'], burst:1.1 },
-
-    { id:'ginryu', name:'銀柳', unlock:3000,
-      core:'#f4fff8', glow:'#b8f2d8',
-      trailFrom:'rgba(184,242,216,0.6)', trailTo:'rgba(90,180,140,0)',
-      palette:['#d1fae5','#6ee7b7','#a7f3d0','#e2e8f0','#f4fff8','#34d399'], burst:1.15 },
-
-    { id:'senrin', name:'千輪', unlock:5000,
-      core:'#fff5fb', glow:'#ff8ad4',
-      trailFrom:'rgba(255,138,212,0.6)', trailTo:'rgba(255,210,63,0)',
-      palette:['#ff8ad4','#ffc2e8','#ffd23f','#fff5fb','#ff5fb0','#fde68a'], burst:1.25 },
-
-    { id:'shakudama', name:'正三尺玉', unlock:7500,
+    // The real thing bursts at roughly 600m over Nagaoka, so it unlocks there.
+    // It is the festival's headline shell, so it should be easy to reach.
+    { id:'shakudama', name:'正三尺玉', unlock:600,
       core:'#fff3cf', glow:'#ffb14a',
       trailFrom:'rgba(255,177,74,0.6)', trailTo:'rgba(255,90,20,0)',
       palette:['#ffd23f','#ffb14a','#ff8a3d','#fff3cf','#ffe08a','#ff6b2c'], burst:1.5 },
 
-    { id:'nishiki', name:'錦冠', unlock:10000,
+    { id:'guren', name:'紅蓮', unlock:1500,
+      core:'#fff0ec', glow:'#ff3b30',
+      trailFrom:'rgba(255,59,48,0.6)', trailTo:'rgba(150,20,20,0)',
+      palette:['#ff3b30','#ff6b6b','#e11d48','#ff8a3d','#ffb4a2','#b91c1c'], burst:1.2 },
+
+    { id:'hoshi', name:'星', unlock:3000, shape:'star',
+      core:'#fffdf0', glow:'#ffe066',
+      trailFrom:'rgba(255,224,102,0.6)', trailTo:'rgba(255,170,0,0)',
+      palette:['#ffe066','#fff3b0','#ffd23f','#ffffff','#ffc14d','#fff8dc'], burst:1.3 },
+
+    { id:'ginryu', name:'銀柳', unlock:5000,
+      core:'#f4fff8', glow:'#b8f2d8',
+      trailFrom:'rgba(184,242,216,0.6)', trailTo:'rgba(90,180,140,0)',
+      palette:['#d1fae5','#6ee7b7','#a7f3d0','#e2e8f0','#f4fff8','#34d399'], burst:1.35 },
+
+    { id:'heart', name:'ハート', unlock:7500, shape:'heart',
+      core:'#fff0f6', glow:'#ff5fa8',
+      trailFrom:'rgba(255,95,168,0.6)', trailTo:'rgba(255,20,120,0)',
+      palette:['#ff5fa8','#ff8ad4','#ffc2e8','#ff2f6d','#fff0f6','#ffd23f'], burst:1.4 },
+
+    { id:'kaku', name:'四角', unlock:10000, shape:'square',
+      core:'#f7ffe8', glow:'#a3e635',
+      trailFrom:'rgba(163,230,53,0.6)', trailTo:'rgba(80,160,20,0)',
+      palette:['#a3e635','#d9f99d','#84cc16','#ecfccb','#bef264','#65a30d'], burst:1.45 },
+
+    { id:'nishiki', name:'錦冠', unlock:14000,
       core:'#fffbe8', glow:'#f5c518',
       trailFrom:'rgba(245,197,24,0.65)', trailTo:'rgba(180,90,0,0)',
       palette:['#f5c518','#ffd23f','#fff0a8','#e8a33d','#fffbe8','#c98a17'], burst:1.6 },
 
-    { id:'phoenix', name:'フェニックス', unlock:14000,
+    { id:'phoenix', name:'フェニックス', unlock:18000,
       core:'#fff0f0', glow:'#ff4d4d',
       trailFrom:'rgba(255,77,77,0.6)', trailTo:'rgba(255,180,40,0)',
-      palette:['#ff2f2f','#ff6b6b','#ff9f1c','#ffd23f','#ff2fb0','#fff0f0'], burst:1.7 },
-
-    { id:'amanogawa', name:'天の川', unlock:18000,
-      core:'#ffffff', glow:'#cfe9ff',
-      trailFrom:'rgba(207,233,255,0.6)', trailTo:'rgba(120,160,255,0)',
-      palette:['#ffffff','#cfe9ff','#a5b4fc','#e0f2fe','#93c5fd','#f8fafc'], burst:1.8 },
+      palette:['#ff2f2f','#ff6b6b','#ff9f1c','#ffd23f','#ff2fb0','#fff0f0'], burst:1.75 },
 
     { id:'gokusai', name:'極彩', unlock:23000,
       core:'#ffffff', glow:'#ff2fb0',
@@ -377,14 +414,28 @@
     // burst counts fully toward how many sparks fly, but only partly toward how
     // big each one is - otherwise the late skins throw dinner plates
     const scale = Math.min(2.6, 1 + heightM/1100) * (1 + (sk.burst-1)*0.35);
-    const count = Math.min(150, 28 + heightM/9) * sk.burst;
+    const shapeFn = SHAPES[sk.shape];
+    let count = Math.min(150, 28 + heightM/9) * sk.burst;
+    // a ball still reads with a handful of sparks; a heart does not, so shaped
+    // shells get a floor to stay legible even on a low, early death
+    if(shapeFn) count = Math.max(110, count);
     zoomTarget = Math.max(0.25, 1 - scale*0.32); // bigger blast, more the world shrinks away
     for(let i=0;i<count;i++){
-      const angle = Math.random()*Math.PI*2;
-      const speed = (90 + Math.random()*220) * (0.6 + scale*0.5);
+      let vx, vy;
+      if(shapeFn){
+        // walk the outline in order so the figure actually forms, with a little
+        // jitter in position and speed so it reads as sparks, not a wireframe
+        const p = shapeFn((i + Math.random()*0.7) / count);
+        const speed = (175 + Math.random()*65) * (0.6 + scale*0.5);
+        vx = p[0]*speed; vy = p[1]*speed;
+      } else {
+        const angle = Math.random()*Math.PI*2;
+        const speed = (90 + Math.random()*220) * (0.6 + scale*0.5);
+        vx = Math.cos(angle)*speed; vy = Math.sin(angle)*speed;
+      }
       particles.push({
         x: player.x, y: player.y,
-        vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
+        vx, vy,
         r: Math.min(18, (2 + Math.random()*4) * scale),
         life: 0.9 + Math.random()*0.7,
         maxLife: 0.9 + Math.random()*0.7,
