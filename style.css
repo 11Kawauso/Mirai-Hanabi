@@ -4,6 +4,13 @@
   --purple:#7b2ff7;
   --gold:#ffd23f;
   --ink:#05040f;
+  /* 盤の幅。解説パネルの位置決めにも使うので変数にしてある */
+  --board-w:min(94vw, 480px, calc(96vh * 480 / 800));
+  --guide-w:300px;
+  --guide-gap:28px;
+}
+@supports (height:100dvh){
+  :root{ --board-w:min(94vw, 480px, calc(96dvh * 480 / 800)); }
 }
 *{box-sizing:border-box;}
 html,body{
@@ -20,12 +27,13 @@ html,body{
   -webkit-touch-callout:none;
   user-select:none;
 }
-/* 解説パネルとゲーム盤の横並び。狭い画面ではパネルが消えて盤だけが中央に残る */
+/* 盤は常に画面のど真ん中。解説パネルは左の余白に絶対配置で浮かせるので、
+   パネルの有無で盤の位置がずれない */
 #stage{
+  position:relative;
   display:flex;
   align-items:center;
   justify-content:center;
-  gap:36px;
   height:100%;
   height:100dvh;
   padding:2vh 20px;
@@ -34,8 +42,7 @@ html,body{
 #wrap{
   position:relative;
   flex:0 0 auto;
-  width:min(94vw, 480px, calc(96vh * 480 / 800));
-  width:min(94vw, 480px, calc(96dvh * 480 / 800));
+  width:var(--board-w);
   aspect-ratio:480/800;
   /* ドラッグ操作をブラウザのスクロール/ズームに横取りさせない */
   touch-action:none;
@@ -129,8 +136,12 @@ canvas{
    ゲーム盤の左の余白を使う。盤(最大480px)＋パネル＋余白が収まる幅から出す。 */
 #guide{
   display:none;
-  flex:0 0 auto;
-  width:340px;
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  /* 盤の左辺から --guide-gap だけ離れた位置に右端を合わせる */
+  right:calc(50% + var(--board-w)/2 + var(--guide-gap));
+  width:var(--guide-w);
   max-height:96dvh;
   overflow-y:auto;
   overscroll-behavior:contain;
@@ -139,8 +150,14 @@ canvas{
   line-height:1.85;
   color:rgba(238,242,255,0.72);
 }
-@media (min-width:960px){ #guide{ display:block; } }
-@media (min-width:1240px){ #guide{ width:384px; font-size:12.5px; } }
+/* 中央の盤をどかさずにパネルが収まる幅になってから出す。
+   1200px なら左の余白は (1200-480)/2 = 360px。パネル300＋間隔28を引いても
+   画面端に 32px 残るので、ぎりぎり貼り付いた見た目にならない */
+@media (min-width:1200px){ #guide{ display:block; } }
+@media (min-width:1400px){
+  :root{ --guide-w:380px; --guide-gap:40px; }
+  #guide{ font-size:12.5px; }
+}
 
 #guide::-webkit-scrollbar{ width:6px; }
 #guide::-webkit-scrollbar-track{ background:transparent; }
