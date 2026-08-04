@@ -139,19 +139,28 @@ canvas{
   font-size:10px; letter-spacing:0.16em;
   color:rgba(238,242,255,0.45);
 }
+/* 11個あるので折り返す。狭い盤では2段になる */
 .skin-row{
-  display:flex; justify-content:center; gap:10px;
+  display:flex; justify-content:center; flex-wrap:wrap; gap:8px;
+  max-width:100%;
 }
 .skin-dot{
   appearance:none; cursor:pointer;
-  width:34px; height:34px; padding:0;
+  width:30px; height:30px; padding:0;
   border-radius:50%;
   border:2px solid transparent;
   background:radial-gradient(circle at 38% 34%, var(--core) 0 26%, var(--glow) 62%, rgba(0,0,0,0.55) 100%);
   box-shadow:0 0 12px -2px var(--glow);
-  font-size:9px; font-weight:700; font-family:inherit;
+  font-size:8px; font-weight:700; font-family:inherit;
+  line-height:1;
   color:transparent;
   transition:transform .12s ease, border-color .12s ease;
+}
+/* 最終スキンだけは見本も虹色にして別格に見せる */
+.skin-dot.grand:not(.locked){
+  background:conic-gradient(from 0deg,
+    #ff2f6d, #ff8a3d, #ffd23f, #5eead4, #29f1ff, #7b2ff7, #ff2fb0, #ff2f6d);
+  box-shadow:0 0 15px -1px #ff2fb0;
 }
 .skin-dot:hover:not(.locked){ transform:translateY(-2px); }
 .skin-dot.on{

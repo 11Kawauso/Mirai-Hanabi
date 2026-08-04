@@ -88,26 +88,66 @@
       trailFrom:'rgba(255,210,63,0.55)', trailTo:'rgba(255,120,40,0)',
       palette:['#ff2fb0','#29f1ff','#7b2ff7','#ffd23f','#ff6b6b','#5eead4'], burst:1 },
 
-    { id:'sousei', name:'蒼星', unlock:300,
+    { id:'sousei', name:'蒼星', unlock:500,
       core:'#e8fbff', glow:'#29f1ff',
       trailFrom:'rgba(41,241,255,0.55)', trailTo:'rgba(60,120,255,0)',
       palette:['#29f1ff','#5eead4','#7bdcff','#a5b4fc','#e8fbff','#3b82f6'], burst:1 },
 
-    { id:'shakudama', name:'正三尺玉', unlock:600,
+    { id:'guren', name:'紅蓮', unlock:1500,
+      core:'#fff0ec', glow:'#ff3b30',
+      trailFrom:'rgba(255,59,48,0.6)', trailTo:'rgba(150,20,20,0)',
+      palette:['#ff3b30','#ff6b6b','#e11d48','#ff8a3d','#ffb4a2','#b91c1c'], burst:1.1 },
+
+    { id:'ginryu', name:'銀柳', unlock:3000,
+      core:'#f4fff8', glow:'#b8f2d8',
+      trailFrom:'rgba(184,242,216,0.6)', trailTo:'rgba(90,180,140,0)',
+      palette:['#d1fae5','#6ee7b7','#a7f3d0','#e2e8f0','#f4fff8','#34d399'], burst:1.15 },
+
+    { id:'senrin', name:'千輪', unlock:5000,
+      core:'#fff5fb', glow:'#ff8ad4',
+      trailFrom:'rgba(255,138,212,0.6)', trailTo:'rgba(255,210,63,0)',
+      palette:['#ff8ad4','#ffc2e8','#ffd23f','#fff5fb','#ff5fb0','#fde68a'], burst:1.25 },
+
+    { id:'shakudama', name:'正三尺玉', unlock:7500,
       core:'#fff3cf', glow:'#ffb14a',
       trailFrom:'rgba(255,177,74,0.6)', trailTo:'rgba(255,90,20,0)',
-      palette:['#ffd23f','#ffb14a','#ff8a3d','#fff3cf','#ffe08a','#ff6b2c'], burst:1.35 },
+      palette:['#ffd23f','#ffb14a','#ff8a3d','#fff3cf','#ffe08a','#ff6b2c'], burst:1.5 },
 
-    { id:'phoenix', name:'フェニックス', unlock:1000,
+    { id:'nishiki', name:'錦冠', unlock:10000,
+      core:'#fffbe8', glow:'#f5c518',
+      trailFrom:'rgba(245,197,24,0.65)', trailTo:'rgba(180,90,0,0)',
+      palette:['#f5c518','#ffd23f','#fff0a8','#e8a33d','#fffbe8','#c98a17'], burst:1.6 },
+
+    { id:'phoenix', name:'フェニックス', unlock:14000,
       core:'#fff0f0', glow:'#ff4d4d',
       trailFrom:'rgba(255,77,77,0.6)', trailTo:'rgba(255,180,40,0)',
-      palette:['#ff2f2f','#ff6b6b','#ff9f1c','#ffd23f','#ff2fb0','#fff0f0'], burst:1.2 },
+      palette:['#ff2f2f','#ff6b6b','#ff9f1c','#ffd23f','#ff2fb0','#fff0f0'], burst:1.7 },
 
-    { id:'gokusai', name:'極彩', unlock:1500,
+    { id:'amanogawa', name:'天の川', unlock:18000,
+      core:'#ffffff', glow:'#cfe9ff',
+      trailFrom:'rgba(207,233,255,0.6)', trailTo:'rgba(120,160,255,0)',
+      palette:['#ffffff','#cfe9ff','#a5b4fc','#e0f2fe','#93c5fd','#f8fafc'], burst:1.8 },
+
+    { id:'gokusai', name:'極彩', unlock:23000,
       core:'#ffffff', glow:'#ff2fb0',
       trailFrom:'rgba(255,47,176,0.6)', trailTo:'rgba(123,47,247,0)',
-      palette:['#ff2fb0','#7b2ff7','#29f1ff','#c084fc','#f0abfc','#22d3ee'], burst:1.5 }
+      palette:['#ff2fb0','#7b2ff7','#29f1ff','#c084fc','#f0abfc','#22d3ee'], burst:1.9 },
+
+    // The finale. fx:'grand' adds a hue-cycling core, a pulsing halo and a
+    // continuous spark trail on top of the biggest burst in the game.
+    { id:'banka', name:'万華', unlock:30000,
+      core:'#ffffff', glow:'#ffd23f', fx:'grand',
+      trailFrom:'rgba(255,255,255,0.75)', trailTo:'rgba(255,47,176,0)',
+      palette:['#ff2f6d','#ff8a3d','#ffd23f','#5eead4','#29f1ff','#7b2ff7','#ff2fb0','#ffffff'],
+      burst:2.2 }
   ];
+
+  // "1.5k" style so the number still fits inside a locked swatch
+  function shortM(m){
+    if(m < 1000) return String(m);
+    const k = m/1000;
+    return (Number.isInteger(k) ? k : k.toFixed(1)) + 'k';
+  }
 
   let skinIndex = Math.min(SKINS.length-1, Math.max(0, parseInt(load(STORE_SKIN, '0'), 10) || 0));
   // a cleared best must not leave a locked skin equipped
@@ -129,12 +169,13 @@
         const open = isUnlocked(s);
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'skin-dot' + (i === skinIndex ? ' on' : '') + (open ? '' : ' locked');
+        b.className = 'skin-dot' + (i === skinIndex ? ' on' : '') + (open ? '' : ' locked')
+                    + (s.fx === 'grand' ? ' grand' : '');
         b.style.setProperty('--core', s.core);
         b.style.setProperty('--glow', s.glow);
         b.disabled = !open;
         b.setAttribute('aria-label', open ? s.name : `${s.name}（${s.unlock}m で解放）`);
-        if(!open) b.textContent = s.unlock + 'm';
+        if(!open) b.textContent = shortM(s.unlock);
         b.addEventListener('click', () => selectSkin(i));
         row.appendChild(b);
       });
@@ -197,6 +238,7 @@
   let muzzleParticles = [];
   let cloudWallTimer = 6;
   let wallPending = false; // a wall is due and is waiting for a clear corridor
+  let sparkleTimer = 0;    // emitter for the finale skin's spark trail
   let currentZoom = 1, zoomTarget = 1;
   let boost = 0; // 1 right after firing, eased to 0 over BOOST_DURATION
   let windSpeed = 0;   // signed m/s, negative = left
@@ -332,7 +374,9 @@
   function triggerExplosion(){
     state = 'exploding';
     const sk = skin();
-    const scale = Math.min(2.6, 1 + heightM/1100) * sk.burst;
+    // burst counts fully toward how many sparks fly, but only partly toward how
+    // big each one is - otherwise the late skins throw dinner plates
+    const scale = Math.min(2.6, 1 + heightM/1100) * (1 + (sk.burst-1)*0.35);
     const count = Math.min(150, 28 + heightM/9) * sk.burst;
     zoomTarget = Math.max(0.25, 1 - scale*0.32); // bigger blast, more the world shrinks away
     for(let i=0;i<count;i++){
@@ -341,7 +385,7 @@
       particles.push({
         x: player.x, y: player.y,
         vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
-        r: (2 + Math.random()*4) * scale,
+        r: Math.min(18, (2 + Math.random()*4) * scale),
         life: 0.9 + Math.random()*0.7,
         maxLife: 0.9 + Math.random()*0.7,
         color: sk.palette[Math.floor(Math.random()*sk.palette.length)]
@@ -412,6 +456,23 @@
       scrollSpeed = Math.min(230, 90 + elapsed*1.0) + boost*BOOST_EXTRA;
       heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
       hudHeight.textContent = Math.floor(heightM) + 'm';
+
+      // finale skin leaves a continuous spark trail (reuses the muzzle sparks,
+      // which already animate and fall in every state)
+      if(skin().fx === 'grand'){
+        sparkleTimer -= dt;
+        while(sparkleTimer <= 0){
+          sparkleTimer += 0.028;
+          const pal = skin().palette;
+          muzzleParticles.push({
+            x: player.x + (Math.random()-0.5)*10, y: player.y + player.r,
+            vx: (Math.random()-0.5)*40, vy: 30 + Math.random()*50,
+            r: 1.2 + Math.random()*1.8,
+            life: 0.32 + Math.random()*0.22, maxLife: 0.54,
+            color: pal[Math.floor(Math.random()*pal.length)]
+          });
+        }
+      }
 
       for(const l of speedLines){
         l.y += scrollSpeed * l.spd * dt;
@@ -711,9 +772,27 @@
   function drawPlayer(){
     if(state === 'exploding') return;
     const sk = skin();
+    // the finale cycles its glow through the spectrum and wears a pulsing halo
+    const grand = sk.fx === 'grand';
+    const glow = grand ? `hsl(${(elapsed*110) % 360}, 100%, 62%)` : sk.glow;
+
+    if(grand){
+      const pulse = 1 + 0.16*Math.sin(elapsed*7);
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = glow;
+      ctx.lineWidth = 2;
+      ctx.shadowBlur = 16;
+      ctx.shadowColor = glow;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.r*2.0*pulse, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.save();
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = sk.glow;
+    ctx.shadowBlur = grand ? 26 : 18;
+    ctx.shadowColor = glow;
     ctx.fillStyle = sk.core;
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
