@@ -129,8 +129,58 @@ canvas{
   margin-bottom:18px;
 }
 .result-best{
-  font-size:13px; color:var(--gold); margin-bottom:26px;
+  font-size:13px; color:var(--gold); margin-bottom:22px;
 }
+
+/* ---- スキン選択 ---- */
+.skin-block{ margin-top:20px; }
+.skin-label{
+  margin:0 0 8px;
+  font-size:10px; letter-spacing:0.16em;
+  color:rgba(238,242,255,0.45);
+}
+.skin-row{
+  display:flex; justify-content:center; gap:10px;
+}
+.skin-dot{
+  appearance:none; cursor:pointer;
+  width:34px; height:34px; padding:0;
+  border-radius:50%;
+  border:2px solid transparent;
+  background:radial-gradient(circle at 38% 34%, var(--core) 0 26%, var(--glow) 62%, rgba(0,0,0,0.55) 100%);
+  box-shadow:0 0 12px -2px var(--glow);
+  font-size:9px; font-weight:700; font-family:inherit;
+  color:transparent;
+  transition:transform .12s ease, border-color .12s ease;
+}
+.skin-dot:hover:not(.locked){ transform:translateY(-2px); }
+.skin-dot.on{
+  border-color:#fff;
+  box-shadow:0 0 16px -1px var(--glow), 0 0 0 3px rgba(255,255,255,0.12);
+}
+/* 未解放は色を伏せて、必要な高度だけ出す */
+.skin-dot.locked{
+  cursor:not-allowed;
+  background:rgba(238,242,255,0.07);
+  border-color:rgba(238,242,255,0.16);
+  box-shadow:none;
+  color:rgba(238,242,255,0.5);
+}
+.skin-name{
+  margin:9px 0 0;
+  font-size:11px; font-weight:700;
+  color:rgba(238,242,255,0.8);
+}
+.skin-unlock{
+  margin:0 0 16px;
+  padding:7px 16px;
+  border-radius:999px;
+  border:1px solid rgba(255,210,63,0.45);
+  background:rgba(255,210,63,0.1);
+  font-size:11px; font-weight:700;
+  color:var(--gold);
+}
+.skin-unlock.hidden{ display:none; }
 
 /* ---- 解説パネル ---------------------------------------------------------
    ゲーム盤の左の余白を使う。盤(最大480px)＋パネル＋余白が収まる幅から出す。 */

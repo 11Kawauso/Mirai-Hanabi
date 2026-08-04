@@ -88,6 +88,13 @@
       <p class="title">ミライ花火</p>
       <p class="subtitle">その一発は、未来まで届くか。</p>
       <button class="btn" id="start-btn">打ち上げる</button>
+
+      <div class="skin-block">
+        <p class="skin-label">花火スキン</p>
+        <div class="skin-row" data-skin-picker></div>
+        <p class="skin-name" data-skin-name></p>
+      </div>
+
       <p class="howto">画面を指でなぞって操作（上下にも少しだけ動けます）<br>PC は ← → / A・D、↑ ↓ / W・S<br>画面下の風に流されます。雲・破片・鳥を避けて、少しでも高く。</p>
     </div>
 
@@ -95,7 +102,15 @@
       <p class="result-big">到達高度</p>
       <p class="result-num" id="result-height">0m</p>
       <p class="result-best" id="result-best">自己ベスト 0m</p>
+      <p class="skin-unlock hidden" id="skin-unlock"></p>
       <button class="btn" id="retry-btn">もう一度打ち上げる</button>
+
+      <!-- リトライはスタート画面を経由しないので、ここにも選択肢を置く -->
+      <div class="skin-block">
+        <p class="skin-label">花火スキン</p>
+        <div class="skin-row" data-skin-picker></div>
+        <p class="skin-name" data-skin-name></p>
+      </div>
     </div>
   </div>
 

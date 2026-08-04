@@ -57,11 +57,90 @@
   const resultBest = document.getElementById('result-best');
   const startBtn = document.getElementById('start-btn');
   const retryBtn = document.getElementById('retry-btn');
+  const skinRows = [...document.querySelectorAll('[data-skin-picker]')];
+  const skinNames = [...document.querySelectorAll('[data-skin-name]')];
+  const skinUnlockMsg = document.getElementById('skin-unlock');
 
-  // session-only best height (resets on page reload; add localStorage yourself once this is hosted for real)
-  let bestHeightM = 0;
+  // ---- saved data ----------------------------------------------------------
+  // Wrapped: localStorage throws in private mode and on some file:// origins,
+  // and a skin picker is not worth taking the whole game down for.
+  const STORE_BEST = 'mirai-hanabi.best';
+  const STORE_SKIN = 'mirai-hanabi.skin';
+  function load(key, fallback){
+    try{
+      const v = localStorage.getItem(key);
+      return v === null ? fallback : v;
+    }catch(e){ return fallback; }
+  }
+  function save(key, value){
+    try{ localStorage.setItem(key, value); }catch(e){ /* nothing we can do */ }
+  }
 
-  const PALETTE = ['#ff2fb0', '#29f1ff', '#7b2ff7', '#ffd23f', '#ff6b6b', '#5eead4'];
+  let bestHeightM = Math.max(0, parseFloat(load(STORE_BEST, '0')) || 0);
+  let bestBeforeRun = bestHeightM; // to spot skins unlocked by the run just finished
+
+  // ---- skins ---------------------------------------------------------------
+  // Purely cosmetic: shot colour, exhaust trail, and the burst it opens into.
+  // Unlocked by best height so there's a reason to keep climbing.
+  const SKINS = [
+    { id:'mirai', name:'ミライ', unlock:0,
+      core:'#fff6d8', glow:'#ffd23f',
+      trailFrom:'rgba(255,210,63,0.55)', trailTo:'rgba(255,120,40,0)',
+      palette:['#ff2fb0','#29f1ff','#7b2ff7','#ffd23f','#ff6b6b','#5eead4'], burst:1 },
+
+    { id:'sousei', name:'蒼星', unlock:300,
+      core:'#e8fbff', glow:'#29f1ff',
+      trailFrom:'rgba(41,241,255,0.55)', trailTo:'rgba(60,120,255,0)',
+      palette:['#29f1ff','#5eead4','#7bdcff','#a5b4fc','#e8fbff','#3b82f6'], burst:1 },
+
+    { id:'shakudama', name:'正三尺玉', unlock:600,
+      core:'#fff3cf', glow:'#ffb14a',
+      trailFrom:'rgba(255,177,74,0.6)', trailTo:'rgba(255,90,20,0)',
+      palette:['#ffd23f','#ffb14a','#ff8a3d','#fff3cf','#ffe08a','#ff6b2c'], burst:1.35 },
+
+    { id:'phoenix', name:'フェニックス', unlock:1000,
+      core:'#fff0f0', glow:'#ff4d4d',
+      trailFrom:'rgba(255,77,77,0.6)', trailTo:'rgba(255,180,40,0)',
+      palette:['#ff2f2f','#ff6b6b','#ff9f1c','#ffd23f','#ff2fb0','#fff0f0'], burst:1.2 },
+
+    { id:'gokusai', name:'極彩', unlock:1500,
+      core:'#ffffff', glow:'#ff2fb0',
+      trailFrom:'rgba(255,47,176,0.6)', trailTo:'rgba(123,47,247,0)',
+      palette:['#ff2fb0','#7b2ff7','#29f1ff','#c084fc','#f0abfc','#22d3ee'], burst:1.5 }
+  ];
+
+  let skinIndex = Math.min(SKINS.length-1, Math.max(0, parseInt(load(STORE_SKIN, '0'), 10) || 0));
+  // a cleared best must not leave a locked skin equipped
+  if(bestHeightM < SKINS[skinIndex].unlock) skinIndex = 0;
+  function skin(){ return SKINS[skinIndex]; }
+  function isUnlocked(s){ return bestHeightM >= s.unlock; }
+
+  function selectSkin(i){
+    if(!isUnlocked(SKINS[i])) return;
+    skinIndex = i;
+    save(STORE_SKIN, String(i));
+    renderSkins();
+  }
+
+  function renderSkins(){
+    for(const row of skinRows){
+      row.textContent = '';
+      SKINS.forEach((s, i) => {
+        const open = isUnlocked(s);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'skin-dot' + (i === skinIndex ? ' on' : '') + (open ? '' : ' locked');
+        b.style.setProperty('--core', s.core);
+        b.style.setProperty('--glow', s.glow);
+        b.disabled = !open;
+        b.setAttribute('aria-label', open ? s.name : `${s.name}（${s.unlock}m で解放）`);
+        if(!open) b.textContent = s.unlock + 'm';
+        b.addEventListener('click', () => selectSkin(i));
+        row.appendChild(b);
+      });
+    }
+    for(const el of skinNames) el.textContent = SKINS[skinIndex].name;
+  }
 
   const STAGES = [
     { minH: 0,    top:'#050914', bottom:'#131a2c', grid:0.0, stars:0.15, cityAlpha:1.0 },
@@ -146,6 +225,8 @@
 
   function reset(){
     state = 'launching';
+    bestBeforeRun = bestHeightM;
+    skinUnlockMsg.classList.add('hidden');
     launchTimer = 0;
     heightM = 0;
     scrollSpeed = 90;
@@ -175,6 +256,7 @@
   }
 
   function spawnMuzzleFlash(){
+    const pal = skin().palette;
     for(let i=0;i<26;i++){
       const angle = -Math.PI/2 + (Math.random()-0.5)*1.1;
       const speed = 80 + Math.random()*160;
@@ -183,7 +265,7 @@
         vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
         r: 2+Math.random()*3,
         life: 0.35+Math.random()*0.25, maxLife: 0.5,
-        color: PALETTE[Math.floor(Math.random()*PALETTE.length)]
+        color: pal[Math.floor(Math.random()*pal.length)]
       });
     }
   }
@@ -249,8 +331,9 @@
 
   function triggerExplosion(){
     state = 'exploding';
-    const scale = Math.min(2.6, 1 + heightM/1100);
-    const count = Math.min(150, 28 + heightM/9);
+    const sk = skin();
+    const scale = Math.min(2.6, 1 + heightM/1100) * sk.burst;
+    const count = Math.min(150, 28 + heightM/9) * sk.burst;
     zoomTarget = Math.max(0.25, 1 - scale*0.32); // bigger blast, more the world shrinks away
     for(let i=0;i<count;i++){
       const angle = Math.random()*Math.PI*2;
@@ -261,10 +344,13 @@
         r: (2 + Math.random()*4) * scale,
         life: 0.9 + Math.random()*0.7,
         maxLife: 0.9 + Math.random()*0.7,
-        color: PALETTE[Math.floor(Math.random()*PALETTE.length)]
+        color: sk.palette[Math.floor(Math.random()*sk.palette.length)]
       });
     }
-    if(heightM > bestHeightM) bestHeightM = heightM;
+    if(heightM > bestHeightM){
+      bestHeightM = heightM;
+      save(STORE_BEST, String(Math.floor(bestHeightM)));
+    }
   }
 
   function endToResult(){
@@ -272,6 +358,16 @@
     resultHeight.textContent = Math.floor(heightM) + 'm';
     resultBest.textContent = '自己ベスト ' + Math.floor(bestHeightM) + 'm';
     hudBest.textContent = Math.floor(bestHeightM) + 'm';
+
+    // anything this run just put within reach?
+    const opened = SKINS.filter(s => s.unlock > 0 && bestBeforeRun < s.unlock && bestHeightM >= s.unlock);
+    if(opened.length){
+      skinUnlockMsg.textContent = '新しいスキン「' + opened.map(s=>s.name).join('」「') + '」を解放！';
+      skinUnlockMsg.classList.remove('hidden');
+    } else {
+      skinUnlockMsg.classList.add('hidden');
+    }
+    renderSkins(); // unlock states may have changed
     resultScreen.classList.remove('hidden');
   }
 
@@ -614,10 +710,11 @@
 
   function drawPlayer(){
     if(state === 'exploding') return;
+    const sk = skin();
     ctx.save();
     ctx.shadowBlur = 18;
-    ctx.shadowColor = '#ffd23f';
-    ctx.fillStyle = '#fff6d8';
+    ctx.shadowColor = sk.glow;
+    ctx.fillStyle = sk.core;
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
     ctx.fill();
@@ -628,8 +725,8 @@
     const tailTop = player.y + player.r;
     ctx.save();
     const tailGrad = ctx.createLinearGradient(player.x, tailTop, player.x, tailTop + tailLen);
-    tailGrad.addColorStop(0, 'rgba(255,210,63,0.55)');
-    tailGrad.addColorStop(1, 'rgba(255,120,40,0)');
+    tailGrad.addColorStop(0, sk.trailFrom);
+    tailGrad.addColorStop(1, sk.trailTo);
     ctx.strokeStyle = tailGrad;
     ctx.lineWidth = 3 + boost*2;
     ctx.lineCap = 'round';
@@ -844,4 +941,7 @@
 
   startBtn.addEventListener('click', reset);
   retryBtn.addEventListener('click', reset);
+
+  hudBest.textContent = Math.floor(bestHeightM) + 'm';
+  renderSkins();
 })();
