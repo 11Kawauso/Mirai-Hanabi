@@ -15,8 +15,8 @@
   // Climb rate. Tuned so the speed is still creeping up all the way to 30,000m
   // instead of pinning a tenth of the way in.
   const SCROLL_BASE = 90;
-  const SCROLL_RATE = 0.45;     // px/s gained per second survived
-  const SCROLL_CAP  = 420;      // only reached a shade past 30,000m
+  const SCROLL_RATE = 0.38;     // px/s gained per second survived
+  const SCROLL_CAP  = 370;      // only reached a shade before 30,000m
 
   // Wind. A signed speed in m/s (negative = blowing left) that never sits still:
   // it eases toward a fresh target every dozen-odd seconds, and that target is
@@ -534,7 +534,7 @@
   // rather than drifting in it.
   function spawnWindDebris(){
     const dir = windSpeed < 0 ? -1 : 1;
-    const size = 9 + Math.random()*8;
+    const size = 14 + Math.random()*11; // big enough to read while it streaks past
     obstacles.push({
       type:'windborne',
       x: dir > 0 ? -size - Math.random()*50 : GAME_W + Math.random()*50,
