@@ -59,6 +59,14 @@
   const BURST_FIT = 200;       // on-screen radius the camera pulls back to frame
   const BURST_ZOOM_MIN = 0.15; // how far the camera may pull back; low enough that a
                                // 30,000m shell shrinks the scenery to specks
+  // Thunderheads. Not lethal - they blind you. Nothing new spawns while you are
+  // inside one, so it's a nerve test with what you already saw, not a coin flip
+  // against obstacles you have no way of seeing.
+  const CUMULO_MIN_H = 10000;    // altitude they start forming at
+  const CUMULO_GAP = 26, CUMULO_GAP_RAND = 22; // seconds between them
+  const CUMULO_FADE = 110;       // px of soft edge entering and leaving
+  const CUMULO_MAX_ALPHA = 0.82; // how completely the core whites things out
+
   const BURST_SCALE_CAP = 7.5, BURST_SCALE_DIV = 4400; // spread grows to ~28,600m
   const BURST_COUNT_CAP = 300, BURST_COUNT_DIV = 105;  // density grows to ~30,000m
 
@@ -338,6 +346,8 @@
   let cloudWallTimer = 6;
   let wallPending = false; // a wall is due and is waiting for a clear corridor
   let sparkleTimer = 0;    // emitter for the finale skin's spark trail
+  let cumuloTimer = 0;     // until the next thunderhead
+  let cumuloFog = 0;       // 0..1 eased whiteout while inside one
   let currentZoom = 1, zoomTarget = 1;
   let boost = 0; // 1 right after firing, eased to 0 over BOOST_DURATION
   let windSpeed = 0;   // signed m/s, negative = left
@@ -446,6 +456,8 @@
     spawnTimer = 1.0;
     cloudWallTimer = 5 + Math.random()*3;
     wallPending = false;
+    cumuloTimer = 12 + Math.random()*18; // first one lands a while after 10,000m
+    cumuloFog = 0;
     currentZoom = 1;
     zoomTarget = 1;
     obstacles = [];
@@ -546,6 +558,13 @@
     });
   }
 
+  function spawnCumulo(){
+    const h = 430 + Math.random()*250;
+    const lumps = [];
+    for(let i=0;i<8;i++) lumps.push({ x: Math.random()*GAME_W, r: 42 + Math.random()*58 });
+    obstacles.push({ type:'cumulo', x:0, y:-h, w:GAME_W, h, lumps });
+  }
+
   function spawnCloudWall(){
     const gapW = Math.max(88, 150 - heightM/40);
     const gapX = PLAY_LEFT + Math.random()*((PLAY_RIGHT-PLAY_LEFT) - gapW);
@@ -640,6 +659,18 @@
     const wantGauge = (state === 'playing' && elapsed >= WIND_START);
     windVisible = clamp(windVisible + (wantGauge ? dt*1.6 : -dt*3), 0, 1);
 
+    // how deep into a thunderhead the shot is, softened at both edges
+    let fogTarget = 0;
+    if(state === 'playing'){
+      for(const o of obstacles){
+        if(o.type !== 'cumulo') continue;
+        const depth = Math.min(player.y - o.y, (o.y + o.h) - player.y);
+        if(depth > 0) fogTarget = Math.max(fogTarget, Math.min(1, depth / CUMULO_FADE));
+      }
+    }
+    cumuloFog += (fogTarget - cumuloFog) * Math.min(1, dt*4);
+    const inCumulo = fogTarget > 0;
+
     // muzzle-flash sparks animate no matter what state we're in
     for(let i=muzzleParticles.length-1;i>=0;i--){
       const p = muzzleParticles[i];
@@ -717,17 +748,27 @@
       else if(dragTargetY !== null) player.y += stepToward(dragTargetY - player.y, MOVE_SPEED_Y*dt);
       player.y = clamp(player.y, PLAYER_Y-VERTICAL_RANGE, PLAYER_Y+VERTICAL_RANGE);
 
+      // Nothing new appears while you're blind inside a thunderhead - you only
+      // have to deal with what was already on screen when you went in.
       spawnTimer -= dt;
       if(spawnTimer <= 0){
-        spawnObstacle();
+        if(!inCumulo) spawnObstacle();
         spawnTimer = Math.max(0.45, 1.15 - elapsed*0.01);
+      }
+
+      if(heightM >= CUMULO_MIN_H){
+        cumuloTimer -= dt;
+        if(cumuloTimer <= 0 && !inCumulo){
+          spawnCumulo();
+          cumuloTimer = CUMULO_GAP + Math.random()*CUMULO_GAP_RAND;
+        }
       }
 
       cloudWallTimer -= dt;
       if(cloudWallTimer <= 0) wallPending = true;
       // wait for a clear corridor before dropping the wall in. Cloud spawning is
       // paused while pending, so the strays always fall clear within ~2s.
-      if(wallPending && !cloudNear(-70, wallClearance(), false)){
+      if(wallPending && !inCumulo && !cloudNear(-70, wallClearance(), false)){
         spawnCloudWall();
         wallPending = false;
         cloudWallTimer = 8 + Math.random()*6;
@@ -758,7 +799,7 @@
       if(gale > 0){
         windDebrisTimer -= dt;
         if(windDebrisTimer <= 0){
-          spawnWindDebris();
+          if(!inCumulo) spawnWindDebris();
           windDebrisTimer = Math.max(0.3, 1.15 - gale*0.22);
         }
       } else {
@@ -787,6 +828,8 @@
         } else if(o.type === 'bird'){
           o.y += scrollSpeed*dt;
           o.x = o.baseX + Math.sin((elapsed - o.t0)*3.2)*60;
+        } else if(o.type === 'cumulo'){
+          o.y += scrollSpeed*dt; // spans the full width, so wind drift is moot
         } else {
           o.y += scrollSpeed*dt;
           const drift = windPx * o.windFactor * dt;
@@ -807,7 +850,9 @@
           }
         }
 
-        if(o.w > 1 && circleRectHit(player.x, player.y, player.r, o.x, o.y, o.w, o.h)){
+        // a thunderhead blinds you, it doesn't kill you
+        if(o.type !== 'cumulo' && o.w > 1 &&
+           circleRectHit(player.x, player.y, player.r, o.x, o.y, o.w, o.h)){
           triggerExplosion();
         }
 
@@ -1039,6 +1084,24 @@
         ctx.beginPath();
         ctx.arc(o.x+o.w/2, o.y+o.h/2, o.w/2, 0, Math.PI*2);
         ctx.fill();
+      } else if(o.type === 'cumulo'){
+        // a soft-edged bank so you can see it coming and pick a lane first
+        ctx.save();
+        const g = ctx.createLinearGradient(0, o.y, 0, o.y + o.h);
+        g.addColorStop(0,    'rgba(238,244,255,0)');
+        g.addColorStop(0.22, 'rgba(238,244,255,0.5)');
+        g.addColorStop(0.78, 'rgba(238,244,255,0.5)');
+        g.addColorStop(1,    'rgba(238,244,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, o.y, GAME_W, o.h);
+        ctx.globalAlpha = 0.4;
+        ctx.fillStyle = 'rgba(244,248,255,0.85)';
+        for(const l of o.lumps){ // puffy crown, so it doesn't read as a rectangle
+          ctx.beginPath();
+          ctx.arc(l.x, o.y + l.r*0.55, l.r, 0, Math.PI*2);
+          ctx.fill();
+        }
+        ctx.restore();
       } else if(o.type === 'windborne'){
         // dusty and angular, so it never gets mistaken for a cloud or a bird
         ctx.save();
@@ -1268,6 +1331,25 @@
     }
     drawCannon(); // self-hides once it has scrolled past the bottom edge
     drawObstacles();
+    ctx.restore();
+
+    // Whiteout sits above the scenery but below the shot: inside a thunderhead
+    // you lose the world, never your own position.
+    if(cumuloFog > 0.002){
+      ctx.save();
+      ctx.globalAlpha = cumuloFog * CUMULO_MAX_ALPHA;
+      ctx.fillStyle = '#eef4ff';
+      ctx.fillRect(0, 0, GAME_W, GAME_H);
+      ctx.restore();
+    }
+
+    ctx.save();
+    if(state === 'exploding'){
+      const cx = GAME_W/2, cy = GAME_H/2;
+      ctx.translate(cx, cy);
+      ctx.scale(currentZoom, currentZoom);
+      ctx.translate(-cx, -cy);
+    }
     drawPlayer();
     drawParticles();
     drawMuzzleParticles();

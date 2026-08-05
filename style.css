@@ -293,6 +293,11 @@ kbd{
     rgba(220,225,240,0.85) 0 38%, transparent 38% 62%, rgba(220,225,240,0.85) 62% 100%);
 }
 .g-chip-debris{ width:9px; height:9px; border-radius:50%; background:#ffb14a; }
+.g-chip-cumulo{
+  width:18px; height:11px; border-radius:6px;
+  background:rgba(238,244,255,0.92);
+  box-shadow:0 0 7px rgba(238,244,255,0.55);
+}
 .g-chip-bird{
   width:10px; height:10px; border-radius:2px;
   background:rgba(248,250,255,0.95);
