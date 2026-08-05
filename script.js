@@ -316,6 +316,59 @@
   // Ceiling at a full 10m/s storm. 5m/s lands near half of this, which is where
   // the effect sat before the storm tiers existed.
   const WIND_STREAK_ALPHA = 0.30;
+
+  // One pre-rendered tapered streak, reused for every gust line. Building a
+  // fresh gradient for all 14 of them on every frame was steady garbage, and it
+  // started the instant the wind picked up.
+  const streakSprite = document.createElement('canvas');
+  (function buildStreakSprite(){
+    streakSprite.width = 128; streakSprite.height = 3;
+    const g = streakSprite.getContext('2d');
+    if(!g) return;
+    const grad = g.createLinearGradient(0,0,128,0);
+    grad.addColorStop(0, 'rgba(214,236,255,0)');
+    grad.addColorStop(1, 'rgba(214,236,255,1)');
+    g.fillStyle = grad;
+    g.fillRect(0,0,128,3);
+  })();
+
+  // Same trick for the vertical launch streaks, which were rebuilding 22
+  // gradients a frame for the whole boost - on every single launch.
+  const speedSprite = document.createElement('canvas');
+  (function buildSpeedSprite(){
+    speedSprite.width = 2; speedSprite.height = 128;
+    const g = speedSprite.getContext('2d');
+    if(!g) return;
+    const grad = g.createLinearGradient(0,0,0,128);
+    grad.addColorStop(0, 'rgba(210,240,255,0)');
+    grad.addColorStop(1, 'rgba(210,240,255,1)');
+    g.fillStyle = grad;
+    g.fillRect(0,0,2,128);
+  })();
+
+  // Rasterising a glyph at a size/weight the canvas has not drawn before costs a
+  // visible frame, and CJK glyphs are the worst of it. The gauge only switches to
+  // bold 強風/暴風 once you are already flying, which is exactly when the stutter
+  // showed up - so every string it can ever show gets warmed here, up front.
+  (function warmGaugeFonts(){
+    const warm = document.createElement('canvas');
+    warm.width = 96; warm.height = 32;
+    const g = warm.getContext('2d');
+    if(!g) return;
+    const fonts = [
+      '9px "Hiragino Sans","Yu Gothic",system-ui,sans-serif',
+      'bold 9px "Hiragino Sans","Yu Gothic",system-ui,sans-serif',
+      'bold 15px "Hiragino Sans","Yu Gothic",system-ui,sans-serif',
+      'bold 17px system-ui,sans-serif',
+      '10px system-ui,sans-serif'
+    ];
+    const words = ['風向き','強風','暴風','無風','m/s','0123456789.'];
+    g.fillStyle = '#fff';
+    for(const f of fonts){
+      g.font = f;
+      for(const w of words) g.fillText(w, 0, 16);
+    }
+  })();
   const windStreaks = [];
   for(let i=0;i<14;i++) windStreaks.push({ x:0, y:0, len:0, spd:0, alpha:0 });
   function scatterWindStreaks(){
@@ -823,21 +876,19 @@
     if(strength < 0.05) return; // dead calm draws nothing at all
     const dir = windSpeed < 0 ? -1 : 1;
     ctx.save();
-    ctx.lineWidth = 1.5;
-    ctx.lineCap = 'round';
     for(const s of windStreaks){
       const len = s.len * (0.45 + strength*0.55); // stronger wind, longer streak
-      const x1 = s.x + dir*len;
-      const a = WIND_STREAK_ALPHA * strength * s.alpha;
-      // tail transparent, leading edge brightest, so direction is legible
-      const g = ctx.createLinearGradient(s.x, s.y, x1, s.y);
-      g.addColorStop(0, 'rgba(214,236,255,0)');
-      g.addColorStop(1, `rgba(214,236,255,${a.toFixed(3)})`);
-      ctx.strokeStyle = g;
-      ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(x1, s.y);
-      ctx.stroke();
+      ctx.globalAlpha = WIND_STREAK_ALPHA * strength * s.alpha;
+      if(dir > 0){
+        ctx.drawImage(streakSprite, s.x, s.y-1.5, len, 3);
+      } else {
+        // mirrored, so the bright leading edge still points where the wind goes
+        ctx.save();
+        ctx.translate(s.x, s.y-1.5);
+        ctx.scale(-1, 1);
+        ctx.drawImage(streakSprite, 0, 0, len, 3);
+        ctx.restore();
+      }
     }
     ctx.restore();
   }
@@ -845,18 +896,10 @@
   function drawSpeedLines(){
     if(boost <= 0.02) return;
     ctx.save();
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
     for(const l of speedLines){
       // tapered so each streak reads as a trail rather than a floating stick
-      const grad = ctx.createLinearGradient(l.x, l.y - l.len, l.x, l.y);
-      grad.addColorStop(0, 'rgba(210,240,255,0)');
-      grad.addColorStop(1, `rgba(210,240,255,${(boost*l.alpha).toFixed(3)})`);
-      ctx.strokeStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(l.x, l.y - l.len);
-      ctx.lineTo(l.x, l.y);
-      ctx.stroke();
+      ctx.globalAlpha = boost * l.alpha;
+      ctx.drawImage(speedSprite, l.x-1, l.y - l.len, 2, l.len);
     }
     ctx.restore();
   }
