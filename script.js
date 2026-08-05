@@ -877,25 +877,50 @@
 
     const gridAmt = lerp(cur.grid, next.grid, t);
     if(gridAmt > 0.01){
-      ctx.save();
-      ctx.globalAlpha = gridAmt * 0.5;
-      ctx.strokeStyle = '#29f1ff';
-      ctx.lineWidth = 1;
+      // The grid rides the camera pull-back too - it's the clearest ruler on
+      // screen for how far a burst has spread. Its extents grow by 1/zoom so the
+      // shrunken grid still reaches the frame edges instead of becoming a small
+      // patch floating in the middle. The vanishing line is deliberately NOT
+      // padded upward: sky belongs above it.
+      const z = (state === 'exploding') ? currentZoom : 1;
+      const cx = GAME_W/2, cy = GAME_H/2;
+      // +40 of slack: without it the padding lands exactly on the frame edge and
+      // a rounding error shows a sliver of bare sky there
+      const padX = (GAME_W/2) * (1/z - 1) + 40;
+      const padY = (GAME_H/2) * (1/z - 1) + 40;
       const spacing = 34;
       const offset = (elapsed*40) % spacing;
-      for(let y = GAME_H - offset; y > GAME_H*0.35; y -= spacing){
-        ctx.beginPath();
-        ctx.moveTo(0,y);
-        ctx.lineTo(GAME_W,y);
-        ctx.stroke();
+      const topY = GAME_H*0.35;
+
+      ctx.save();
+      if(z !== 1){
+        ctx.translate(cx, cy);
+        ctx.scale(z, z);
+        ctx.translate(-cx, -cy);
       }
+      ctx.strokeStyle = '#29f1ff';
+      ctx.lineWidth = 1;
+
+      // batched into one path per group - this used to be one stroke per line
+      ctx.globalAlpha = gridAmt * 0.5;
+      ctx.beginPath();
+      let y = GAME_H - offset;
+      while(y < GAME_H + padY) y += spacing;
+      for(; y > topY; y -= spacing){
+        ctx.moveTo(-padX, y);
+        ctx.lineTo(GAME_W + padX, y);
+      }
+      ctx.stroke();
+
       ctx.globalAlpha = gridAmt * 0.35;
-      for(let x=-GAME_W; x<GAME_W*2; x+=48){
-        ctx.beginPath();
-        ctx.moveTo(GAME_W/2 + (x-GAME_W/2)*0.2, GAME_H*0.35);
-        ctx.lineTo(x, GAME_H);
-        ctx.stroke();
+      ctx.beginPath();
+      const stretch = (GAME_H + padY - topY) / (GAME_H - topY);
+      for(let x = -GAME_W - padX; x < GAME_W*2 + padX; x += 48){
+        const sx = cx + (x-cx)*0.2;
+        ctx.moveTo(sx, topY);
+        ctx.lineTo(sx + (x - sx)*stretch, GAME_H + padY);
       }
+      ctx.stroke();
       ctx.restore();
     }
 
