@@ -296,6 +296,22 @@
   // speed, since the shot itself is pinned to a fixed height on screen
   const speedLines = [];
   for(let i=0;i<22;i++) speedLines.push({ x:0, y:0, len:0, spd:0, alpha:0 });
+  // Faint horizontal streaks of moving air. Kept deliberately dim - they should
+  // register at the edge of your attention, not compete with the obstacles.
+  const WIND_STREAK_ALPHA = 0.16; // ceiling, at full wind
+  const windStreaks = [];
+  for(let i=0;i<14;i++) windStreaks.push({ x:0, y:0, len:0, spd:0, alpha:0 });
+  function scatterWindStreaks(){
+    for(const s of windStreaks){
+      s.x = Math.random()*GAME_W;
+      s.y = Math.random()*GAME_H;
+      s.len = 34 + Math.random()*66;
+      s.spd = 0.7 + Math.random()*0.9; // parallax, so they don't move as one sheet
+      s.alpha = 0.35 + Math.random()*0.65;
+    }
+  }
+  scatterWindStreaks();
+
   function scatterSpeedLines(){
     for(const l of speedLines){
       l.x = Math.random()*GAME_W;
@@ -333,6 +349,7 @@
     windTimer = 0;
     windVisible = 0;
     scatterSpeedLines();
+    scatterWindStreaks();
     hudHeight.textContent = '0m'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
     resultScreen.classList.add('hidden');
@@ -597,6 +614,16 @@
       // steering back to its old spot and silently cancels the drift out
       if(dragTargetX !== null) dragTargetX = clamp(dragTargetX + windPx*dt, 0, GAME_W);
 
+      // Air streaks run faster than the shot drifts, otherwise they'd sit still
+      // relative to everything else and read as scratches rather than wind.
+      for(const s of windStreaks){
+        s.x += windPx * s.spd * 2.4 * dt;
+        s.y += scrollSpeed * 0.35 * dt;   // sinks slowly, like the rest of the sky
+        if(s.y - s.len > GAME_H) s.y = -20;
+        if(windPx > 0 && s.x > GAME_W){ s.x = -s.len; s.y = Math.random()*GAME_H; }
+        else if(windPx < 0 && s.x + s.len < 0){ s.x = GAME_W; s.y = Math.random()*GAME_H; }
+      }
+
       for(let i=obstacles.length-1;i>=0;i--){
         const o = obstacles[i];
         if(o.type === 'debris'){
@@ -733,6 +760,31 @@
       }
       ctx.restore();
     }
+  }
+
+  function drawWindStreaks(){
+    // windVisible ties this to the gauge, so the air fades in and out with it
+    const strength = Math.min(1, Math.abs(windSpeed)/WIND_MAX) * windVisible;
+    if(strength < 0.05) return; // dead calm draws nothing at all
+    const dir = windSpeed < 0 ? -1 : 1;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    for(const s of windStreaks){
+      const len = s.len * (0.45 + strength*0.55); // stronger wind, longer streak
+      const x1 = s.x + dir*len;
+      const a = WIND_STREAK_ALPHA * strength * s.alpha;
+      // tail transparent, leading edge brightest, so direction is legible
+      const g = ctx.createLinearGradient(s.x, s.y, x1, s.y);
+      g.addColorStop(0, 'rgba(214,236,255,0)');
+      g.addColorStop(1, `rgba(214,236,255,${a.toFixed(3)})`);
+      ctx.strokeStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(x1, s.y);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawSpeedLines(){
@@ -983,6 +1035,7 @@
     ctx.clearRect(0,0,GAME_W,GAME_H);
     drawSky();
     drawBackgroundDetails();
+    drawWindStreaks();
     drawSpeedLines();
     drawWalls(); // outside the transform - it applies the zoom itself
 
