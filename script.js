@@ -66,6 +66,9 @@
   const CUMULO_GAP = 26, CUMULO_GAP_RAND = 22; // seconds between them
   const CUMULO_FADE = 110;       // px of soft edge entering and leaving
   const CUMULO_MAX_ALPHA = 0.82; // how completely the core whites things out
+  const CUMULO_HAZE_M = 500;     // metres of thin mist that trails you out of one
+  const CUMULO_HAZE_ALPHA = 0.22;// how thin that mist is
+  const CUMULO_HAZE_HOLD = 0.6;  // fraction of those metres it holds before easing off
 
   const BURST_SCALE_CAP = 7.5, BURST_SCALE_DIV = 4400; // spread grows to ~28,600m
   const BURST_COUNT_CAP = 300, BURST_COUNT_DIV = 105;  // density grows to ~30,000m
@@ -348,6 +351,8 @@
   let sparkleTimer = 0;    // emitter for the finale skin's spark trail
   let cumuloTimer = 0;     // until the next thunderhead
   let cumuloFog = 0;       // 0..1 eased whiteout while inside one
+  let cumuloHaze = 0;      // 0..1 thin mist that lingers after leaving
+  let hazeEndH = -1;       // altitude the mist finally clears at
   let currentZoom = 1, zoomTarget = 1;
   let boost = 0; // 1 right after firing, eased to 0 over BOOST_DURATION
   let windSpeed = 0;   // signed m/s, negative = left
@@ -458,6 +463,8 @@
     wallPending = false;
     cumuloTimer = 12 + Math.random()*18; // first one lands a while after 10,000m
     cumuloFog = 0;
+    cumuloHaze = 0;
+    hazeEndH = -1;
     currentZoom = 1;
     zoomTarget = 1;
     obstacles = [];
@@ -670,6 +677,16 @@
     }
     cumuloFog += (fogTarget - cumuloFog) * Math.min(1, dt*4);
     const inCumulo = fogTarget > 0;
+
+    // Coming out, a thin mist clings for the next CUMULO_HAZE_M metres of climb.
+    // Measured in altitude rather than seconds so it behaves the same whether
+    // you're crawling at 100px/s or tearing along at 370.
+    if(inCumulo) hazeEndH = heightM + CUMULO_HAZE_M;
+    let hazeTarget = 0;
+    if(state === 'playing' && hazeEndH > heightM){
+      hazeTarget = Math.min(1, (hazeEndH - heightM) / (CUMULO_HAZE_M * CUMULO_HAZE_HOLD));
+    }
+    cumuloHaze += (hazeTarget - cumuloHaze) * Math.min(1, dt*3);
 
     // muzzle-flash sparks animate no matter what state we're in
     for(let i=muzzleParticles.length-1;i>=0;i--){
@@ -1335,9 +1352,11 @@
 
     // Whiteout sits above the scenery but below the shot: inside a thunderhead
     // you lose the world, never your own position.
-    if(cumuloFog > 0.002){
+    // whichever is denser: the cloud you're in, or the mist it left on you
+    const whiteout = Math.max(cumuloFog * CUMULO_MAX_ALPHA, cumuloHaze * CUMULO_HAZE_ALPHA);
+    if(whiteout > 0.002){
       ctx.save();
-      ctx.globalAlpha = cumuloFog * CUMULO_MAX_ALPHA;
+      ctx.globalAlpha = whiteout;
       ctx.fillStyle = '#eef4ff';
       ctx.fillRect(0, 0, GAME_W, GAME_H);
       ctx.restore();
