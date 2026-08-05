@@ -59,16 +59,15 @@
   const BURST_FIT = 200;       // on-screen radius the camera pulls back to frame
   const BURST_ZOOM_MIN = 0.15; // how far the camera may pull back; low enough that a
                                // 30,000m shell shrinks the scenery to specks
-  // Thunderheads. Not lethal - they blind you. Nothing new spawns while you are
-  // inside one, so it's a nerve test with what you already saw, not a coin flip
-  // against obstacles you have no way of seeing.
+  // Thunderheads. Not lethal - they just wash the screen out. A single one spans
+  // roughly 500m of climb, so it's a long stretch of flying half-blind rather
+  // than a brief flash. Obstacles keep coming inside, which is why the whiteout
+  // stops short of opaque: everything stays readable, just barely.
   const CUMULO_MIN_H = 10000;    // altitude they start forming at
-  const CUMULO_GAP = 26, CUMULO_GAP_RAND = 22; // seconds between them
+  const CUMULO_GAP = 70, CUMULO_GAP_RAND = 60; // seconds between them
+  const CUMULO_SPAN_M = 500, CUMULO_SPAN_RAND_M = 90; // metres of altitude one covers
   const CUMULO_FADE = 110;       // px of soft edge entering and leaving
-  const CUMULO_MAX_ALPHA = 0.82; // how completely the core whites things out
-  const CUMULO_HAZE_M = 500;     // metres of thin mist that trails you out of one
-  const CUMULO_HAZE_ALPHA = 0.22;// how thin that mist is
-  const CUMULO_HAZE_HOLD = 0.6;  // fraction of those metres it holds before easing off
+  const CUMULO_MAX_ALPHA = 0.52; // screen wash; the cloud body adds ~0.28 on top
 
   const BURST_SCALE_CAP = 7.5, BURST_SCALE_DIV = 4400; // spread grows to ~28,600m
   const BURST_COUNT_CAP = 300, BURST_COUNT_DIV = 105;  // density grows to ~30,000m
@@ -351,8 +350,6 @@
   let sparkleTimer = 0;    // emitter for the finale skin's spark trail
   let cumuloTimer = 0;     // until the next thunderhead
   let cumuloFog = 0;       // 0..1 eased whiteout while inside one
-  let cumuloHaze = 0;      // 0..1 thin mist that lingers after leaving
-  let hazeEndH = -1;       // altitude the mist finally clears at
   let currentZoom = 1, zoomTarget = 1;
   let boost = 0; // 1 right after firing, eased to 0 over BOOST_DURATION
   let windSpeed = 0;   // signed m/s, negative = left
@@ -463,8 +460,6 @@
     wallPending = false;
     cumuloTimer = 12 + Math.random()*18; // first one lands a while after 10,000m
     cumuloFog = 0;
-    cumuloHaze = 0;
-    hazeEndH = -1;
     currentZoom = 1;
     zoomTarget = 1;
     obstacles = [];
@@ -566,10 +561,12 @@
   }
 
   function spawnCumulo(){
-    const h = 430 + Math.random()*250;
-    const lumps = [];
+    const h = (CUMULO_SPAN_M + Math.random()*CUMULO_SPAN_RAND_M) * PIXELS_PER_METER;
+    // puffs on both faces - the lower one is the leading edge you actually fly into
+    const lumps = [], base = [];
     for(let i=0;i<8;i++) lumps.push({ x: Math.random()*GAME_W, r: 42 + Math.random()*58 });
-    obstacles.push({ type:'cumulo', x:0, y:-h, w:GAME_W, h, lumps });
+    for(let i=0;i<8;i++) base.push({ x: Math.random()*GAME_W, r: 46 + Math.random()*62 });
+    obstacles.push({ type:'cumulo', x:0, y:-h, w:GAME_W, h, lumps, base });
   }
 
   function spawnCloudWall(){
@@ -678,16 +675,6 @@
     cumuloFog += (fogTarget - cumuloFog) * Math.min(1, dt*4);
     const inCumulo = fogTarget > 0;
 
-    // Coming out, a thin mist clings for the next CUMULO_HAZE_M metres of climb.
-    // Measured in altitude rather than seconds so it behaves the same whether
-    // you're crawling at 100px/s or tearing along at 370.
-    if(inCumulo) hazeEndH = heightM + CUMULO_HAZE_M;
-    let hazeTarget = 0;
-    if(state === 'playing' && hazeEndH > heightM){
-      hazeTarget = Math.min(1, (hazeEndH - heightM) / (CUMULO_HAZE_M * CUMULO_HAZE_HOLD));
-    }
-    cumuloHaze += (hazeTarget - cumuloHaze) * Math.min(1, dt*3);
-
     // muzzle-flash sparks animate no matter what state we're in
     for(let i=muzzleParticles.length-1;i>=0;i--){
       const p = muzzleParticles[i];
@@ -765,11 +752,9 @@
       else if(dragTargetY !== null) player.y += stepToward(dragTargetY - player.y, MOVE_SPEED_Y*dt);
       player.y = clamp(player.y, PLAYER_Y-VERTICAL_RANGE, PLAYER_Y+VERTICAL_RANGE);
 
-      // Nothing new appears while you're blind inside a thunderhead - you only
-      // have to deal with what was already on screen when you went in.
       spawnTimer -= dt;
       if(spawnTimer <= 0){
-        if(!inCumulo) spawnObstacle();
+        spawnObstacle();
         spawnTimer = Math.max(0.45, 1.15 - elapsed*0.01);
       }
 
@@ -785,7 +770,7 @@
       if(cloudWallTimer <= 0) wallPending = true;
       // wait for a clear corridor before dropping the wall in. Cloud spawning is
       // paused while pending, so the strays always fall clear within ~2s.
-      if(wallPending && !inCumulo && !cloudNear(-70, wallClearance(), false)){
+      if(wallPending && !cloudNear(-70, wallClearance(), false)){
         spawnCloudWall();
         wallPending = false;
         cloudWallTimer = 8 + Math.random()*6;
@@ -816,7 +801,7 @@
       if(gale > 0){
         windDebrisTimer -= dt;
         if(windDebrisTimer <= 0){
-          if(!inCumulo) spawnWindDebris();
+          spawnWindDebris();
           windDebrisTimer = Math.max(0.3, 1.15 - gale*0.22);
         }
       } else {
@@ -1102,18 +1087,26 @@
         ctx.arc(o.x+o.w/2, o.y+o.h/2, o.w/2, 0, Math.PI*2);
         ctx.fill();
       } else if(o.type === 'cumulo'){
-        // a soft-edged bank so you can see it coming and pick a lane first
+        // The bank itself stays fairly light - the screen-space wash does the
+        // heavy lifting once you're inside. Fades are a fixed number of pixels
+        // rather than a fraction, or a 3,000px tall cloud would fade for 700px.
         ctx.save();
+        const f = Math.min(0.3, 260 / o.h);
         const g = ctx.createLinearGradient(0, o.y, 0, o.y + o.h);
-        g.addColorStop(0,    'rgba(238,244,255,0)');
-        g.addColorStop(0.22, 'rgba(238,244,255,0.5)');
-        g.addColorStop(0.78, 'rgba(238,244,255,0.5)');
-        g.addColorStop(1,    'rgba(238,244,255,0)');
+        g.addColorStop(0,   'rgba(238,244,255,0)');
+        g.addColorStop(f,   'rgba(238,244,255,0.28)');
+        g.addColorStop(1-f, 'rgba(238,244,255,0.28)');
+        g.addColorStop(1,   'rgba(238,244,255,0)');
         ctx.fillStyle = g;
         ctx.fillRect(0, o.y, GAME_W, o.h);
-        ctx.globalAlpha = 0.4;
+        ctx.globalAlpha = 0.32;
         ctx.fillStyle = 'rgba(244,248,255,0.85)';
-        for(const l of o.lumps){ // puffy crown, so it doesn't read as a rectangle
+        for(const l of o.base){ // leading face - this is the one you fly into
+          ctx.beginPath();
+          ctx.arc(l.x, o.y + o.h - l.r*0.55, l.r, 0, Math.PI*2);
+          ctx.fill();
+        }
+        for(const l of o.lumps){ // trailing crown
           ctx.beginPath();
           ctx.arc(l.x, o.y + l.r*0.55, l.r, 0, Math.PI*2);
           ctx.fill();
@@ -1352,11 +1345,9 @@
 
     // Whiteout sits above the scenery but below the shot: inside a thunderhead
     // you lose the world, never your own position.
-    // whichever is denser: the cloud you're in, or the mist it left on you
-    const whiteout = Math.max(cumuloFog * CUMULO_MAX_ALPHA, cumuloHaze * CUMULO_HAZE_ALPHA);
-    if(whiteout > 0.002){
+    if(cumuloFog > 0.002){
       ctx.save();
-      ctx.globalAlpha = whiteout;
+      ctx.globalAlpha = cumuloFog * CUMULO_MAX_ALPHA;
       ctx.fillStyle = '#eef4ff';
       ctx.fillRect(0, 0, GAME_W, GAME_H);
       ctx.restore();
