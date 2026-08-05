@@ -12,6 +12,12 @@
   const BOOST_DURATION = 1.2;   // how long the muzzle kick keeps pushing after firing
   const BOOST_EXTRA = 340;      // px/s piled on top of cruise speed at t=0, eased to 0
 
+  // Climb rate. Tuned so the speed is still creeping up all the way to 30,000m
+  // instead of pinning a tenth of the way in.
+  const SCROLL_BASE = 90;
+  const SCROLL_RATE = 0.45;     // px/s gained per second survived
+  const SCROLL_CAP  = 420;      // only reached a shade past 30,000m
+
   // Wind. A signed speed in m/s (negative = blowing left) that never sits still:
   // it eases toward a fresh target every dozen-odd seconds, and that target is
   // sometimes dead calm.
@@ -51,6 +57,10 @@
   const BURST_DRAG = 1.35;     // velocity decay per second
   const BURST_GRAVITY = 110;   // gentle, so the flower hangs before it droops
   const BURST_FIT = 200;       // on-screen radius the camera pulls back to frame
+  const BURST_ZOOM_MIN = 0.15; // how far the camera may pull back; low enough that a
+                               // 30,000m shell shrinks the scenery to specks
+  const BURST_SCALE_CAP = 7.5, BURST_SCALE_DIV = 4400; // spread grows to ~28,600m
+  const BURST_COUNT_CAP = 300, BURST_COUNT_DIV = 105;  // density grows to ~30,000m
 
   const wrap = document.getElementById('wrap');
   const canvas = document.getElementById('game');
@@ -123,10 +133,12 @@
   // Inverse of the climb curve, so a mid-air start also gets the scroll speed it
   // would really have had at that altitude instead of a lazy 90px/s.
   function devElapsedFor(h){
-    const capT = 140; // seconds until scrollSpeed pins at 230
-    const capH = (90*capT + capT*capT/2) / PIXELS_PER_METER;
-    if(h <= capH) return -90 + Math.sqrt(8100 + 2*PIXELS_PER_METER*h);
-    return capT + (h - capH) * PIXELS_PER_METER / 230;
+    const capT = (SCROLL_CAP - SCROLL_BASE) / SCROLL_RATE;
+    const capH = (SCROLL_BASE*capT + SCROLL_RATE*capT*capT/2) / PIXELS_PER_METER;
+    if(h <= capH){ // invert  (B·t + R·t²/2)/PPM = h
+      return (-SCROLL_BASE + Math.sqrt(SCROLL_BASE*SCROLL_BASE + 2*SCROLL_RATE*PIXELS_PER_METER*h)) / SCROLL_RATE;
+    }
+    return capT + (h - capH) * PIXELS_PER_METER / SCROLL_CAP;
   }
 
   // ---- burst shapes --------------------------------------------------------
@@ -430,7 +442,7 @@
     skinUnlockMsg.classList.add('hidden');
     launchTimer = 0;
     heightM = 0;
-    scrollSpeed = 90;
+    scrollSpeed = SCROLL_BASE;
     spawnTimer = 1.0;
     cloudWallTimer = 5 + Math.random()*3;
     wallPending = false;
@@ -443,7 +455,7 @@
     if(DEV.startH > 0){ // dev: drop in mid-flight, at the speed that altitude implies
       heightM = DEV.startH;
       elapsed = devElapsedFor(DEV.startH);
-      scrollSpeed = Math.min(230, 90 + elapsed);
+      scrollSpeed = Math.min(SCROLL_CAP, SCROLL_BASE + elapsed*SCROLL_RATE);
     }
     player.x = GAME_W/2;
     player.y = LAUNCH_Y;
@@ -559,9 +571,9 @@
     const sk = skin();
     // burst counts fully toward how many sparks fly, but only partly toward how
     // big each one is - otherwise the late skins throw dinner plates
-    const scale = Math.min(2.6, 1 + heightM/1100) * (1 + (sk.burst-1)*0.35);
+    const scale = Math.min(BURST_SCALE_CAP, 1 + heightM/BURST_SCALE_DIV) * (1 + (sk.burst-1)*0.35);
     const shapeFn = SHAPES[sk.shape];
-    let count = Math.min(150, 28 + heightM/9) * sk.burst;
+    let count = Math.min(BURST_COUNT_CAP, 28 + heightM/BURST_COUNT_DIV) * sk.burst;
     // a ball still reads with a handful of sparks; a heart does not, so shaped
     // shells get a floor to stay legible even on a low, early death
     if(shapeFn) count = Math.max(110, count);
@@ -570,7 +582,7 @@
     // how wide the flower opens, and gravity sags it further than that. The
     // camera pulls back just enough to frame the result; small bursts need none.
     const reach = ((shapeFn ? 215 : 250) * push + BURST_GRAVITY) / BURST_DRAG;
-    zoomTarget = clamp(BURST_FIT / reach, 0.4, 1);
+    zoomTarget = clamp(BURST_FIT / reach, BURST_ZOOM_MIN, 1);
 
     for(let i=0;i<count;i++){
       let vx, vy;
@@ -588,7 +600,7 @@
       particles.push({
         x: player.x, y: player.y,
         vx, vy,
-        r: Math.min(18, (2 + Math.random()*4) * scale),
+        r: Math.min(34, (2 + Math.random()*4) * scale),
         life: 1.5 + Math.random()*0.9,
         maxLife: 2.4,
         color: sk.palette[Math.floor(Math.random()*sk.palette.length)]
@@ -657,7 +669,7 @@
     if(state === 'launching' || state === 'playing'){
       boost = Math.pow(1 - Math.min(1, elapsed/BOOST_DURATION), 2); // ease-out
       // speed increases very gradually with time survived, not with height directly
-      scrollSpeed = Math.min(230, 90 + elapsed*1.0) + boost*BOOST_EXTRA;
+      scrollSpeed = Math.min(SCROLL_CAP, SCROLL_BASE + elapsed*SCROLL_RATE) + boost*BOOST_EXTRA;
       heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
       hudHeight.textContent = Math.floor(heightM) + 'm';
 
@@ -1087,35 +1099,43 @@
     ctx.restore();
   }
 
-  function drawMuzzleParticles(){
-    for(const p of muzzleParticles){
-      const alpha = Math.max(0, p.life/p.maxLife);
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
+  // A 30,000m shell throws several hundred sparks. shadowBlur plus a save/restore
+  // on every one of them is ruinous, so each colour gets its glow baked once and
+  // every spark is a single drawImage after that.
+  const glowCache = new Map();
+  function glowSprite(color){
+    let c = glowCache.get(color);
+    if(c) return c;
+    c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    if(g){
+      const [r, gr, b] = hexToRgb(color);
+      const grad = g.createRadialGradient(32,32,0, 32,32,32);
+      grad.addColorStop(0,   `rgba(${r},${gr},${b},1)`);
+      grad.addColorStop(0.5, `rgba(${r},${gr},${b},1)`);   // solid core out to p.r
+      grad.addColorStop(1,   `rgba(${r},${gr},${b},0)`);   // halo fades out
+      g.fillStyle = grad;
+      g.fillRect(0,0,64,64);
     }
+    glowCache.set(color, c);
+    return c;
   }
 
-  function drawParticles(){
-    for(const p of particles){
+  function drawGlowParticles(list){
+    ctx.save();
+    for(const p of list){
       const alpha = Math.max(0, p.life / p.maxLife);
-      ctx.save();
+      if(alpha <= 0) continue;
+      const d = p.r * 4; // sprite is half core, half halo -> core radius lands on p.r
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
+      ctx.drawImage(glowSprite(p.color), p.x - d/2, p.y - d/2, d, d);
     }
+    ctx.restore();
   }
+
+  function drawMuzzleParticles(){ drawGlowParticles(muzzleParticles); }
+  function drawParticles(){ drawGlowParticles(particles); }
 
   function drawWindGauge(){
     if(windVisible <= 0.01) return;
