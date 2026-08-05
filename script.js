@@ -5,7 +5,7 @@
   const PLAY_LEFT = 26, PLAY_RIGHT = GAME_W - 26; // side walls: hit them and it's over
   const LAUNCH_Y = GAME_H - 54; // cannon mouth height
   const LAUNCH_DURATION = 0.85;
-  const VERTICAL_RANGE = 46; // small up/down wiggle room around the usual flight line
+  const VERTICAL_RANGE = 64; // small up/down wiggle room around the usual flight line
   const MOVE_SPEED_X = 260;
   const MOVE_SPEED_Y = 130;
   const CANNON_TOP_OFFSET = 74; // muzzle rim sits this far above the cannon's base line
