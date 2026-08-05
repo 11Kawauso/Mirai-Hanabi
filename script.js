@@ -16,10 +16,24 @@
   // it eases toward a fresh target every dozen-odd seconds, and that target is
   // sometimes dead calm.
   const WIND_START = 3.0;        // seconds after firing before wind starts and the gauge appears
-  const WIND_MAX = 5;            // m/s
+  const WIND_MAX = 5;            // m/s, the ordinary ceiling near the ground
   const WIND_PX_PER_MS = 22;     // px/s of sideways drift per m/s -> 5m/s is 110px/s vs the shot's 260
   const WIND_EASE = 0.55;        // m/s the wind is allowed to change per second
   const WIND_CALM_CHANCE = 0.25; // how often a new target is "no wind at all"
+  // The higher you get, the harder it can blow.
+  const WIND_TIERS = [
+    { minH: 0,     cap: WIND_MAX },
+    { minH: 5000,  cap: 7  },   // 強風
+    { minH: 15000, cap: 10 }    // 暴風
+  ];
+  const WIND_VIS_MAX = 10;       // gauge/streaks are graded against the storm ceiling,
+                                 // so 7 and 10 actually look worse than 5
+  const WIND_DEBRIS_MIN = 5;     // m/s at which junk starts getting torn loose
+  function windCap(){
+    let cap = WIND_TIERS[0].cap;
+    for(const t of WIND_TIERS) if(heightM >= t.minH) cap = t.cap;
+    return cap;
+  }
   // Each cloud catches the wind a bit differently. Always positive, so a cloud
   // never sails against the wind — only slower or faster than its neighbours.
   const WIND_FACTOR_MIN = 0.65, WIND_FACTOR_MAX = 1.35;
@@ -287,6 +301,7 @@
   let windTarget = 0;
   let windTimer = 0;   // until the next target is rolled
   let windVisible = 0; // 0..1 fade of the bottom gauge
+  let windDebrisTimer = 0.4;
 
   for(let i=0;i<70;i++){
     stars.push({ x: Math.random()*GAME_W, y: Math.random()*GAME_H, r: Math.random()*1.6+0.4, tw: Math.random()*6.28 });
@@ -298,7 +313,9 @@
   for(let i=0;i<22;i++) speedLines.push({ x:0, y:0, len:0, spd:0, alpha:0 });
   // Faint horizontal streaks of moving air. Kept deliberately dim - they should
   // register at the edge of your attention, not compete with the obstacles.
-  const WIND_STREAK_ALPHA = 0.16; // ceiling, at full wind
+  // Ceiling at a full 10m/s storm. 5m/s lands near half of this, which is where
+  // the effect sat before the storm tiers existed.
+  const WIND_STREAK_ALPHA = 0.30;
   const windStreaks = [];
   for(let i=0;i<14;i++) windStreaks.push({ x:0, y:0, len:0, spd:0, alpha:0 });
   function scatterWindStreaks(){
@@ -348,6 +365,7 @@
     windTarget = 0;
     windTimer = 0;
     windVisible = 0;
+    windDebrisTimer = 0.4;
     scatterSpeedLines();
     scatterWindStreaks();
     hudHeight.textContent = '0m'; // else the previous run's height lingers through the launch animation
@@ -408,6 +426,23 @@
       obstacles.push({ type, x: Math.random()*(GAME_W-34), y:-24, w:34, h:20, baseX: 0, t0: elapsed });
       obstacles[obstacles.length-1].baseX = obstacles[obstacles.length-1].x;
     }
+  }
+
+  // Junk torn loose by a gale. It enters from the side the wind is coming FROM
+  // and crosses well ahead of the clouds, so it reads as being thrown by the air
+  // rather than drifting in it.
+  function spawnWindDebris(){
+    const dir = windSpeed < 0 ? -1 : 1;
+    const size = 9 + Math.random()*8;
+    obstacles.push({
+      type:'windborne',
+      x: dir > 0 ? -size - Math.random()*50 : GAME_W + Math.random()*50,
+      y: -20 + Math.random()*(GAME_H*0.6),
+      w:size, h:size,
+      speedMul: 1.9 + Math.random()*0.9, // clouds ride at 0.65-1.35x, this outruns them
+      rot: Math.random()*Math.PI*2,
+      spin: (Math.random()*2-1)*7
+    });
   }
 
   function spawnCloudWall(){
@@ -599,9 +634,10 @@
       if(elapsed >= WIND_START){
         windTimer -= dt;
         if(windTimer <= 0){
+          const cap = windCap();
           windTarget = Math.random() < WIND_CALM_CHANCE
             ? 0
-            : (Math.random() < 0.5 ? -1 : 1) * (1 + Math.random()*(WIND_MAX-1));
+            : (Math.random() < 0.5 ? -1 : 1) * (1 + Math.random()*(cap-1));
           windTimer = 12 + Math.random()*13;
         }
         // eased, never snapped: the gauge needle is always creeping somewhere
@@ -613,6 +649,19 @@
       // the drag target has to ride the wind too, otherwise a held finger keeps
       // steering back to its old spot and silently cancels the drift out
       if(dragTargetX !== null) dragTargetX = clamp(dragTargetX + windPx*dt, 0, GAME_W);
+
+      // above WIND_DEBRIS_MIN the gale starts throwing junk across the screen,
+      // more often the harder it blows
+      const gale = Math.abs(windSpeed) - WIND_DEBRIS_MIN;
+      if(gale > 0){
+        windDebrisTimer -= dt;
+        if(windDebrisTimer <= 0){
+          spawnWindDebris();
+          windDebrisTimer = Math.max(0.3, 1.15 - gale*0.22);
+        }
+      } else {
+        windDebrisTimer = 0.4;
+      }
 
       // Air streaks run faster than the shot drifts, otherwise they'd sit still
       // relative to everything else and read as scratches rather than wind.
@@ -629,6 +678,10 @@
         if(o.type === 'debris'){
           o.y += scrollSpeed*1.6*dt;
           o.x += o.vx*dt;
+        } else if(o.type === 'windborne'){
+          o.y += scrollSpeed*dt;
+          o.x += windPx * o.speedMul * dt;
+          o.rot += o.spin*dt;
         } else if(o.type === 'bird'){
           o.y += scrollSpeed*dt;
           o.x = o.baseX + Math.sin((elapsed - o.t0)*3.2)*60;
@@ -656,7 +709,9 @@
           triggerExplosion();
         }
 
+        // windborne junk usually leaves sideways, so it needs its own exit check
         if(o.y > GAME_H + 100) obstacles.splice(i,1);
+        else if(o.type === 'windborne' && (o.x < -160 || o.x > GAME_W + 160)) obstacles.splice(i,1);
       }
 
       if(state === 'playing'){
@@ -764,7 +819,7 @@
 
   function drawWindStreaks(){
     // windVisible ties this to the gauge, so the air fades in and out with it
-    const strength = Math.min(1, Math.abs(windSpeed)/WIND_MAX) * windVisible;
+    const strength = Math.min(1, Math.abs(windSpeed)/WIND_VIS_MAX) * windVisible;
     if(strength < 0.05) return; // dead calm draws nothing at all
     const dir = windSpeed < 0 ? -1 : 1;
     ctx.save();
@@ -867,6 +922,21 @@
         ctx.beginPath();
         ctx.arc(o.x+o.w/2, o.y+o.h/2, o.w/2, 0, Math.PI*2);
         ctx.fill();
+      } else if(o.type === 'windborne'){
+        // dusty and angular, so it never gets mistaken for a cloud or a bird
+        ctx.save();
+        ctx.translate(o.x + o.w/2, o.y + o.h/2);
+        ctx.rotate(o.rot);
+        ctx.fillStyle = 'rgba(200,188,168,0.94)';
+        const r = o.w/2;
+        ctx.beginPath();
+        ctx.moveTo(-r, -r*0.6);
+        ctx.lineTo(r*0.7, -r);
+        ctx.lineTo(r, r*0.5);
+        ctx.lineTo(-r*0.5, r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
       } else if(o.type === 'bird'){
         ctx.fillStyle = 'rgba(248,250,255,0.95)';
         ctx.beginPath();
@@ -971,7 +1041,7 @@
     if(windVisible <= 0.01) return;
     const speed = Math.abs(windSpeed);
     const calm = speed < 0.15;
-    const strength = Math.min(1, speed / WIND_MAX);
+    const strength = Math.min(1, speed / WIND_VIS_MAX);
     const cx = GAME_W/2, cy = GAME_H - 52;
     const w = 168, h = 44;
 
@@ -985,11 +1055,16 @@
     ctx.lineWidth = 1;
     ctx.stroke();
 
+    // name the weather, so a sudden shove has an obvious cause
+    const tierName  = speed >= 8.5 ? '暴風' : speed >= 5.5 ? '強風' : '風向き';
+    const tierColor = speed >= 8.5 ? 'rgba(255,99,99,0.95)'
+                    : speed >= 5.5 ? 'rgba(255,190,70,0.9)'
+                    : 'rgba(238,242,255,0.45)';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(238,242,255,0.45)';
-    ctx.font = '9px "Hiragino Sans","Yu Gothic",system-ui,sans-serif';
+    ctx.fillStyle = tierColor;
+    ctx.font = (speed >= 5.5 ? 'bold ' : '') + '9px "Hiragino Sans","Yu Gothic",system-ui,sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('風向き', cx-w/2+16, cy-11);
+    ctx.fillText(tierName, cx-w/2+16, cy-11);
 
     if(calm){
       ctx.fillStyle = 'rgba(238,242,255,0.7)';
