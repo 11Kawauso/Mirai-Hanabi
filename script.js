@@ -151,6 +151,144 @@
     return capT + (h - capH) * PIXELS_PER_METER / SCROLL_CAP;
   }
 
+  // ---- ranking --------------------------------------------------------------
+  // Firebase Realtime Database over its REST interface: no SDK, no API key, just
+  // the database URL. What guards the data is the security rules you paste in
+  // during setup - see RANKING-SETUP.md.
+  // Leave this blank and everything below falls back to a device-local board, so
+  // the game still works offline and at a venue with flaky wifi.
+  const RANKING_DB = '';    // e.g. 'https://mirai-hanabi-default-rtdb.asia-southeast1.firebasedatabase.app'
+  const RANKING_PATH = 'scores';
+  const RANKING_SHOW = 30;  // rows listed; the panel scrolls past ~10
+  const RANKING_FETCH = 200;// pulled before de-duplicating by name
+  const STORE_NAME = 'mirai-hanabi.name';
+  const STORE_LOCAL_RANK = 'mirai-hanabi.rank';
+  const rankingOnline = () => RANKING_DB !== '';
+
+  const nameInput = document.getElementById('name-input');
+  const nameSave = document.getElementById('name-save');
+  const rankStatus = document.getElementById('rank-status');
+  const rankList = document.getElementById('rank-list');
+  const rankMe = document.getElementById('rank-me');
+
+  let playerName = String(load(STORE_NAME, '')).slice(0, 12);
+  if(nameInput) nameInput.value = playerName;
+  const displayName = () => playerName.trim() || 'ななし';
+
+  function localRanking(){
+    try{
+      const rows = JSON.parse(load(STORE_LOCAL_RANK, '[]'));
+      return Array.isArray(rows) ? rows : [];
+    }catch(e){ return []; }
+  }
+  function localSubmit(name, score){
+    const rows = localRanking();
+    const hit = rows.find(r => r.name === name);
+    if(hit){ if(score > hit.score) hit.score = score; }
+    else rows.push({ name, score });
+    rows.sort((a,b) => b.score - a.score);
+    save(STORE_LOCAL_RANK, JSON.stringify(rows.slice(0, RANKING_SHOW)));
+  }
+
+  async function fetchRanking(){
+    // limitToLast with orderBy="score" gives the highest N; needs .indexOn in the rules
+    const url = `${RANKING_DB}/${RANKING_PATH}.json` +
+                `?orderBy=${encodeURIComponent('"score"')}&limitToLast=${RANKING_FETCH}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    // RTDB hands back an object keyed by push id, or null when empty
+    const rows = data ? Object.values(data) : [];
+    // one entry per name, keeping their best - saves needing anything server-side
+    const best = new Map();
+    for(const r of rows){
+      if(!r) continue;
+      const n = String(r.name || '').slice(0,12) || 'ななし';
+      const s = Number(r.score) || 0;
+      if(!best.has(n) || s > best.get(n)) best.set(n, s);
+    }
+    return [...best].map(([name, score]) => ({ name, score }))
+                    .sort((a,b) => b.score - a.score);
+  }
+
+  async function submitScore(score){
+    if(!rankingOnline()) return;
+    await fetch(`${RANKING_DB}/${RANKING_PATH}.json`, {
+      method: 'POST', // push: creates a new child, never touches existing ones
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: displayName(), score: Math.floor(score) })
+    });
+  }
+
+  function rankRow(rank, name, score, mine){
+    const li = document.createElement('li');
+    if(mine) li.className = 'me';
+    const r = document.createElement('span');
+    r.className = 'r-rank'; r.textContent = rank;
+    const n = document.createElement('span');
+    n.className = 'r-nm'; n.textContent = name;
+    const s = document.createElement('span');
+    s.className = 'r-sc'; s.textContent = score.toLocaleString('en-US') + 'm';
+    li.append(r, n, s);
+    return li;
+  }
+
+  function renderRanking(rows, note, isError){
+    if(!rankList) return;
+    rankStatus.textContent = note;
+    rankStatus.classList.toggle('err', !!isError);
+
+    rankList.textContent = '';
+    const mine = displayName();
+    let myRank = -1;
+    rows.slice(0, RANKING_SHOW).forEach((r, i) => {
+      if(r.name === mine && myRank < 0) myRank = i + 1;
+      rankList.appendChild(rankRow(i+1, r.name, r.score, r.name === mine));
+    });
+    if(!rows.length){
+      const p = document.createElement('p');
+      p.className = 'r-empty';
+      p.textContent = 'まだ記録がありません。最初の一発を。';
+      rankList.appendChild(p);
+    }
+
+    // own score always visible, even when it's nowhere near the top
+    rankMe.textContent = '';
+    if(myRank < 0 && bestHeightM > 0){
+      const full = rows.findIndex(r => r.name === mine);
+      const ol = document.createElement('ol');
+      ol.className = 'r-list';
+      ol.appendChild(rankRow(full >= 0 ? full+1 : '—', mine, Math.floor(bestHeightM), true));
+      rankMe.appendChild(ol);
+    }
+  }
+
+  async function refreshRanking(){
+    if(!rankList) return;
+    if(!rankingOnline()){
+      renderRanking(localRanking(), 'この端末の記録（オンライン未設定）', false);
+      return;
+    }
+    rankStatus.textContent = '読み込み中…';
+    try{
+      renderRanking(await fetchRanking(), '全プレイヤー共通', false);
+    }catch(e){
+      // never let a dead network take the panel away
+      renderRanking(localRanking(), '接続できないため端末の記録を表示中', true);
+    }
+  }
+
+  function setName(v){
+    playerName = String(v || '').slice(0, 12).trim();
+    save(STORE_NAME, playerName);
+    if(nameInput) nameInput.value = playerName;
+    refreshRanking();
+  }
+  if(nameSave) nameSave.addEventListener('click', () => setName(nameInput.value));
+  if(nameInput) nameInput.addEventListener('keydown', (e) => {
+    if(e.code === 'Enter' || e.key === 'Enter'){ setName(nameInput.value); nameInput.blur(); }
+  });
+
   // ---- burst shapes --------------------------------------------------------
   // Japanese "katamono" shells open into a figure rather than a ball. Each
   // function walks the outline for t in [0,1) and returns a direction vector
@@ -651,6 +789,14 @@
       skinUnlockMsg.classList.add('hidden');
     }
     renderSkins(); // unlock states may have changed
+
+    // only a genuine personal best goes to the board, so replaying doesn't spam it
+    if(!DEV.on && bestHeightM > bestBeforeRun){
+      localSubmit(displayName(), Math.floor(bestHeightM));
+      submitScore(bestHeightM).catch(() => {}); // fire and forget; the panel copes on its own
+    }
+    refreshRanking();
+
     resultScreen.classList.remove('hidden');
   }
 
@@ -1387,7 +1533,15 @@
     'ArrowLeft','ArrowRight','ArrowUp','ArrowDown','KeyA','KeyD','KeyW','KeyS','Space'
   ]);
 
+  // While a text field has focus the game must keep its hands off the keyboard,
+  // or the name box would silently eat A, D, W, S and every space.
+  const typing = (e) => {
+    const t = e.target;
+    return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  };
+
   window.addEventListener('keydown', (e) => {
+    if(typing(e)) return;
     if(GAME_KEYS.has(e.code)) e.preventDefault();
     if(e.code === 'ArrowLeft' || e.code === 'KeyA') keyLeft = true;
     if(e.code === 'ArrowRight' || e.code === 'KeyD') keyRight = true;
@@ -1398,6 +1552,7 @@
     }
   });
   window.addEventListener('keyup', (e) => {
+    if(typing(e)) return;
     if(e.code === 'ArrowLeft' || e.code === 'KeyA') keyLeft = false;
     if(e.code === 'ArrowRight' || e.code === 'KeyD') keyRight = false;
     if(e.code === 'ArrowUp' || e.code === 'KeyW') moveUp = false;
@@ -1460,4 +1615,5 @@
 
   hudBest.textContent = Math.floor(bestHeightM) + 'm';
   renderSkins();
+  refreshRanking();
 })();

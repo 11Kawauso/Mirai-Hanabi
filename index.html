@@ -73,6 +73,23 @@
     </section>
   </aside>
 
+  <!-- 解説と対称に、盤の右側の余白へ絶対配置される -->
+  <aside id="ranking">
+    <h2 class="r-title">ランキング</h2>
+
+    <div class="r-name">
+      <label class="r-label" for="name-input">プレイヤー名</label>
+      <div class="r-name-row">
+        <input id="name-input" type="text" maxlength="12" placeholder="ななし" autocomplete="off" spellcheck="false">
+        <button id="name-save" type="button">保存</button>
+      </div>
+    </div>
+
+    <p class="r-status" id="rank-status">読み込み中…</p>
+    <ol class="r-list" id="rank-list"></ol>
+    <div class="r-me" id="rank-me"></div>
+  </aside>
+
   <div id="wrap">
     <canvas id="game"></canvas>
 
