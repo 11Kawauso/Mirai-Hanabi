@@ -157,7 +157,7 @@
   // during setup - see RANKING-SETUP.md.
   // Leave this blank and everything below falls back to a device-local board, so
   // the game still works offline and at a venue with flaky wifi.
-  const RANKING_DB = '';    // e.g. 'https://mirai-hanabi-default-rtdb.asia-southeast1.firebasedatabase.app'
+  const RANKING_DB = 'https://mirai-hanabi-acb4f-default-rtdb.asia-southeast1.firebasedatabase.app';
   const RANKING_PATH = 'scores';
   const RANKING_SHOW = 30;  // rows listed; the panel scrolls past ~10
   const RANKING_FETCH = 200;// pulled before de-duplicating by name
