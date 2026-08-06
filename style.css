@@ -205,8 +205,8 @@ canvas{
   -webkit-user-select:none;
   user-select:none;
 }
-.pad-lr{ display:flex; flex:1 1 auto; gap:10px; }
-.pad-ud{ display:flex; flex-direction:column; flex:0 0 auto; gap:6px; }
+/* 左右ボタンで挟んで、上下ボタンは真ん中に縦積み */
+.pad-ud{ display:flex; flex-direction:column; flex:0 0 auto; gap:6px; justify-content:center; }
 .pad-btn{
   appearance:none; cursor:pointer;
   flex:1 1 0; min-width:0;
