@@ -599,6 +599,9 @@
 
   function reset(){
     state = 'launching';
+    // 引き出しを開いたまま打ち上がると盤が見えないので必ず畳む
+    setPanel(null);
+    document.body.classList.add('playing');
     bestBeforeRun = bestHeightM;
     skinUnlockMsg.classList.add('hidden');
     launchTimer = 0;
@@ -780,6 +783,7 @@
 
   function endToResult(){
     state = 'result';
+    document.body.classList.remove('playing'); // スワイプを解禁する
     resultHeight.textContent = Math.floor(heightM) + 'm';
     resultBest.textContent = '自己ベスト ' + Math.floor(bestHeightM) + 'm';
     hudBest.textContent = Math.floor(bestHeightM) + 'm';
@@ -1560,6 +1564,79 @@
   window.addEventListener('blur', () => {
     keyLeft = keyRight = moveUp = moveDown = false;
   });
+
+  // ---- swipe-in panels ------------------------------------------------------
+  // Narrow screens have no room for the side panels, so they become drawers:
+  // swipe right for the guide (it lives left of the board), swipe left for the
+  // ranking (right of the board). The direction matches where each one sits on
+  // a wide screen, so the mental model is the same either way.
+  const guideEl = document.getElementById('guide');
+  const rankingEl = document.getElementById('ranking');
+  const panelMQ = window.matchMedia('(max-width:1199px)');
+  let openPanel = null; // null | 'guide' | 'ranking'
+
+  // Opening a drawer hides the board, so a run in progress would be lost.
+  const inFlight = () => state === 'launching' || state === 'playing' || state === 'exploding';
+
+  function syncPanelA11y(){
+    const drawer = panelMQ.matches;
+    // On a wide screen both panels are simply on show; only the drawer form hides.
+    guideEl.setAttribute('aria-hidden', String(drawer && openPanel !== 'guide'));
+    rankingEl.setAttribute('aria-hidden', String(drawer && openPanel !== 'ranking'));
+  }
+
+  function setPanel(name){
+    if(name && inFlight()) return;
+    if(name === openPanel) return;
+    openPanel = name;
+    const cls = document.body.classList;
+    cls.toggle('panel-guide', name === 'guide');
+    cls.toggle('panel-ranking', name === 'ranking');
+    cls.toggle('panel-open', !!name);
+    syncPanelA11y();
+    if(name === 'ranking') refreshRanking(); // 開くたびに最新の並びを取り直す
+  }
+
+  const SWIPE_MIN = 60;     // px。これ未満はタップの手ぶれとして捨てる
+  const SWIPE_RATIO = 1.4;  // 縦移動よりこの倍率だけ横に動いていること
+  const SWIPE_MS = 700;     // ゆっくりした指の置き直しをスワイプと誤認しない
+  let swipe = null;
+
+  window.addEventListener('pointerdown', (e) => {
+    swipe = null;
+    if(!panelMQ.matches) return;
+    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    // 操作ボタン・閉じるボタン・名前欄の上から始まった指は、その部品のもの
+    if(e.target.closest && e.target.closest('#pad, button, input, textarea')) return;
+    swipe = { id:e.pointerId, x:e.clientX, y:e.clientY, t:performance.now() };
+  }, { passive:true });
+
+  window.addEventListener('pointerup', (e) => {
+    const s = swipe;
+    swipe = null;
+    if(!s || e.pointerId !== s.id) return;
+    if(performance.now() - s.t > SWIPE_MS) return;
+    const dx = e.clientX - s.x, dy = e.clientY - s.y;
+    if(Math.abs(dx) < SWIPE_MIN) return;
+    if(Math.abs(dx) < Math.abs(dy) * SWIPE_RATIO) return; // パネルの縦スクロール中
+    if(dx < 0){
+      setPanel(openPanel === 'guide' ? null : 'ranking');   // 左へ
+    } else {
+      setPanel(openPanel === 'ranking' ? null : 'guide');   // 右へ
+    }
+  }, { passive:true });
+
+  window.addEventListener('pointercancel', () => { swipe = null; });
+
+  for(const el of document.querySelectorAll('[data-close-panel]')){
+    el.addEventListener('click', () => setPanel(null));
+  }
+  window.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape' && openPanel) setPanel(null);
+  });
+  // 画面を広げたら常駐表示に戻るので、引き出しの状態は捨てる
+  panelMQ.addEventListener('change', () => { setPanel(null); syncPanelA11y(); });
+  syncPanelA11y();
 
   startBtn.addEventListener('click', reset);
   retryBtn.addEventListener('click', reset);

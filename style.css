@@ -248,12 +248,13 @@ canvas{
 /* タッチ端末では盤を少し小さくしてボタンの居場所を作る */
 @media (hover: none){
   :root{
-    --board-w:min(94vw, 480px, calc((96vh - 120px) * 480 / 800));
-    --board-w:min(94vw, 480px, calc((96dvh - 120px) * 480 / 800));
+    --board-w:min(94vw, 480px, calc((96vh - 150px) * 480 / 800));
+    --board-w:min(94vw, 480px, calc((96dvh - 150px) * 480 / 800));
   }
   #stage{ flex-direction:column; gap:12px; }
   #pad{ display:flex; }
 }
+
 
 /* ---- 解説パネル ---------------------------------------------------------
    ゲーム盤の左の余白を使う。盤(最大480px)＋パネル＋余白が収まる幅から出す。 */
@@ -485,4 +486,82 @@ kbd{
   width:5px; height:15px; border-radius:2px;
   background:linear-gradient(90deg, rgba(255,47,176,0.95), rgba(255,47,176,0.2));
   box-shadow:0 0 8px rgba(255,47,176,0.6);
+}
+
+/* ---- スワイプで開くパネル（狭い画面） -----------------------------------
+   広い画面では #guide / #ranking が左右の余白に常駐するので何も変えない。
+   狭い画面では同じ位置関係（左＝説明、右＝ランキング）のまま引き出しにする。
+   #guide / #ranking の絶対配置を上書きするので、必ずそれらより後ろに置くこと。 */
+#scrim{
+  display:none;
+  position:fixed; inset:0;
+  z-index:20;
+  background:rgba(5,4,15,0.72);
+  opacity:0;
+  transition:opacity .28s ease;
+}
+.panel-close{ display:none; }
+
+#swipe-hint{
+  display:none;
+  margin:0;
+  width:var(--board-w);
+  justify-content:space-between;
+  gap:10px;
+  font-size:10.5px; letter-spacing:0.06em;
+  color:rgba(238,242,255,0.38);
+}
+#swipe-hint b{ color:rgba(41,241,255,0.72); font-weight:700; }
+/* 飛行中はスワイプを受け付けないので、案内も引っ込める */
+body.playing #swipe-hint{ visibility:hidden; }
+
+@media (max-width:1199px){
+  #swipe-hint{ display:flex; }
+
+  #guide, #ranking{
+    display:block;
+    position:fixed;
+    top:0; bottom:0; left:auto; right:auto;
+    width:min(92vw, 400px);
+    max-height:none;
+    z-index:21;
+    margin:0;
+    padding:52px 18px calc(24px + env(safe-area-inset-bottom));
+    font-size:12.5px;
+    background:linear-gradient(180deg, #0c0a1e 0%, var(--ink) 100%);
+    box-shadow:0 0 40px rgba(0,0,0,0.6);
+    /* 閉じている間はタップもスクロールも拾わせない */
+    visibility:hidden;
+    transition:transform .28s ease, visibility .28s;
+  }
+  #guide{ left:0;   transform:translateX(-100%); border-right:1px solid rgba(41,241,255,0.22); }
+  #ranking{ right:0; transform:translateX(100%);  border-left:1px solid rgba(255,47,176,0.22); }
+
+  body.panel-open #scrim{ display:block; opacity:1; }
+  body.panel-guide   #guide,
+  body.panel-ranking #ranking{ visibility:visible; transform:translateX(0); }
+
+  .panel-close{
+    display:flex; align-items:center; justify-content:center;
+    position:absolute; top:12px; right:14px;
+    width:36px; height:36px;
+    padding:0; cursor:pointer;
+    border:1px solid rgba(238,242,255,0.2);
+    border-radius:10px;
+    background:rgba(238,242,255,0.06);
+    color:rgba(238,242,255,0.8);
+    -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none;
+    -webkit-user-select:none; user-select:none;
+  }
+  .panel-close-ico{
+    width:18px; height:18px;
+    fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round;
+    pointer-events:none;
+  }
+}
+
+/* 動きを減らす設定ならスライドさせない */
+@media (prefers-reduced-motion: reduce){
+  #guide, #ranking, #scrim{ transition:none; }
 }

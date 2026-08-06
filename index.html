@@ -11,8 +11,14 @@
 <body>
 <div id="stage">
 
-  <!-- 画面が広いときだけ出る解説。狭い端末では非表示になる -->
-  <aside id="guide">
+  <!-- パネルを開いている間だけ盤面を覆う。タップでも閉じられる -->
+  <div id="scrim" data-close-panel></div>
+
+  <!-- 画面が広いときは盤の左に常駐。狭い端末では右スワイプで出るパネルになる -->
+  <aside id="guide" aria-hidden="true">
+    <button class="panel-close" type="button" data-close-panel aria-label="説明を閉じる">
+      <svg class="panel-close-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
     <p class="g-eyebrow">新潟デジコングランプリ 出展作品</p>
     <h1 class="g-title">ミライ花火</h1>
     <p class="g-lead">その一発は、未来まで届くか。<br>長岡花火をモチーフにした、打ち上げ高度を競うゲームです。</p>
@@ -73,8 +79,11 @@
     </section>
   </aside>
 
-  <!-- 解説と対称に、盤の右側の余白へ絶対配置される -->
-  <aside id="ranking">
+  <!-- 解説と対称。狭い端末では左スワイプで出るパネルになる -->
+  <aside id="ranking" aria-hidden="true">
+    <button class="panel-close" type="button" data-close-panel aria-label="ランキングを閉じる">
+      <svg class="panel-close-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
     <h2 class="r-title">ランキング</h2>
 
     <div class="r-name">
@@ -152,6 +161,12 @@
       <svg class="pad-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12h16m0 0-7-7m7 7-7 7"/></svg>
     </button>
   </div>
+
+  <!-- スワイプで開けることは知らないと気づけないので、盤の下に出しておく -->
+  <p id="swipe-hint">
+    <span>右スワイプで<b>説明</b></span>
+    <span><b>ランキング</b>は左スワイプ</span>
+  </p>
 
 </div>
 </body>
