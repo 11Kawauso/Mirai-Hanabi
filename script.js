@@ -131,6 +131,7 @@
   const STORE_NAME = 'mirai-hanabi.name';
   const STORE_LOCAL_RANK = 'mirai-hanabi.rank';
   const STORE_SENT = 'mirai-hanabi.sent'; // highest score the board has actually accepted
+  const STORE_CLIENT = 'mirai-hanabi.id'; // this browser's permanent slot on the board
   const rankingOnline = () => RANKING_DB !== '';
 
   const nameInput = document.getElementById('name-input');
@@ -143,13 +144,27 @@
   // Tracked separately from bestHeightM: a best set while offline, or one whose
   // upload failed, must still get sent on a later run.
   let sentBest = Number(load(STORE_SENT, '0')) || 0;
+
+  // The board is keyed by this, never by the name. A name is neither unique nor
+  // stable: keying on it meant renaming created a second entry, and two people
+  // who picked the same name collapsed into one. One browser, one slot.
+  function makeClientId(){
+    try{ if(typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID(); }
+    catch(e){ /* fall through */ }
+    return 'c' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+  let clientId = String(load(STORE_CLIENT, ''));
+  if(!clientId){ clientId = makeClientId(); save(STORE_CLIENT, clientId); }
   if(nameInput) nameInput.value = playerName;
   const displayName = () => playerName.trim() || 'ななし';
 
   function localRanking(){
     try{
       const rows = JSON.parse(load(STORE_LOCAL_RANK, '[]'));
-      return Array.isArray(rows) ? rows : [];
+      if(!Array.isArray(rows)) return [];
+      // tag our own row so the highlight works offline too
+      const mine = displayName();
+      return rows.map(r => ({ ...r, id: r.name === mine ? clientId : 'local:' + r.name }));
     }catch(e){ return []; }
   }
   function localSubmit(name, score){
@@ -168,24 +183,24 @@
     const res = await fetch(url);
     if(!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    // RTDB hands back an object keyed by push id, or null when empty
-    const rows = data ? Object.values(data) : [];
-    // one entry per name, keeping their best - saves needing anything server-side
-    const best = new Map();
-    for(const r of rows){
-      if(!r) continue;
-      const n = String(r.name || '').slice(0,12) || 'ななし';
-      const s = Number(r.score) || 0;
-      if(!best.has(n) || s > best.get(n)) best.set(n, s);
-    }
-    return [...best].map(([name, score]) => ({ name, score }))
-                    .sort((a,b) => b.score - a.score);
+    // RTDB hands back an object keyed by client id, or null when empty. Each key
+    // is already one browser's single entry, so there is nothing to merge.
+    return Object.entries(data || {})
+      .filter(([, r]) => r)
+      .map(([id, r]) => ({
+        id,
+        name: String(r.name || '').slice(0,12) || 'ななし',
+        score: Number(r.score) || 0
+      }))
+      .sort((a,b) => b.score - a.score);
   }
 
-  async function submitScore(score){
+  // PUT to this browser's own slot, so a rename edits the existing row instead of
+  // adding another one. The rules only accept a score >= what is already there.
+  async function putEntry(score){
     if(!rankingOnline()) return;
-    const res = await fetch(`${RANKING_DB}/${RANKING_PATH}.json`, {
-      method: 'POST', // push: creates a new child, never touches existing ones
+    const res = await fetch(`${RANKING_DB}/${RANKING_PATH}/${clientId}.json`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: displayName(), score: Math.floor(score) })
     });
@@ -199,7 +214,7 @@
     if(bestHeightM > sentBest){
       localSubmit(displayName(), Math.floor(bestHeightM));
       try{
-        await submitScore(bestHeightM);
+        await putEntry(bestHeightM);
         sentBest = Math.floor(bestHeightM);
         save(STORE_SENT, String(sentBest));
       }catch(e){
@@ -233,11 +248,12 @@
     rankStatus.classList.toggle('err', !!isError);
 
     rankList.textContent = '';
-    const mine = displayName();
+    // matched on the browser id, so someone else picking your name isn't you
     let myRank = -1;
     rows.slice(0, RANKING_SHOW).forEach((r, i) => {
-      if(r.name === mine && myRank < 0) myRank = i + 1;
-      rankList.appendChild(rankRow(i+1, r.name, r.score, r.name === mine));
+      const mine = r.id === clientId;
+      if(mine && myRank < 0) myRank = i + 1;
+      rankList.appendChild(rankRow(i+1, r.name, r.score, mine));
     });
     if(!rows.length){
       const p = document.createElement('p');
@@ -249,10 +265,10 @@
     // own score always visible, even when it's nowhere near the top
     rankMe.textContent = '';
     if(myRank < 0 && bestHeightM > 0){
-      const full = rows.findIndex(r => r.name === mine);
+      const full = rows.findIndex(r => r.id === clientId);
       const ol = document.createElement('ol');
       ol.className = 'r-list';
-      ol.appendChild(rankRow(full >= 0 ? full+1 : '—', mine, Math.floor(bestHeightM), true));
+      ol.appendChild(rankRow(full >= 0 ? full+1 : '—', displayName(), Math.floor(bestHeightM), true));
       rankMe.appendChild(ol);
     }
   }
@@ -276,10 +292,12 @@
     playerName = String(v || '').slice(0, 12).trim();
     save(STORE_NAME, playerName);
     if(nameInput) nameInput.value = playerName;
-    // the new name has no entry on the board yet, so allow the best to go up again
-    sentBest = 0;
-    save(STORE_SENT, '0');
-    refreshRanking();
+    // Relabel the row we already own rather than starting a new one. Re-sending
+    // the same score is allowed by the rules, so the rename lands right away.
+    (async () => {
+      if(sentBest > 0){ try{ await putEntry(sentBest); }catch(e){ /* shown on next run */ } }
+      await refreshRanking();
+    })();
   }
   if(nameSave) nameSave.addEventListener('click', () => setName(nameInput.value));
   if(nameInput) nameInput.addEventListener('keydown', (e) => {

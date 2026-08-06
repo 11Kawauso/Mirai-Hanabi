@@ -43,8 +43,8 @@ https://mirai-hanabi-default-rtdb.asia-southeast1.firebasedatabase.app
     "scores": {
       ".read": true,
       ".indexOn": ["score"],
-      "$entry": {
-        ".write": "!data.exists() && newData.exists()",
+      "$client": {
+        ".write": "newData.exists() && (!data.exists() || newData.child('score').val() >= data.child('score').val())",
         ".validate": "newData.hasChildren(['name','score'])",
         "name": {
           ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12"
@@ -59,12 +59,16 @@ https://mirai-hanabi-default-rtdb.asia-southeast1.firebasedatabase.app
 }
 ```
 
+`$client` はブラウザごとに1つ発行される固定IDです。**1ブラウザ＝1行**になり、名前を変えても
+行が増えず、同じ名前を別のブラウザで使っても別の行として記録されます。
+
 このルールが効かせていること:
 
 | ルール | 効果 |
 |---|---|
 | `.read: true` | 誰でもランキングを読める |
-| `!data.exists()` | **新規追加のみ許可。既存の記録は書き換えも削除もできない** |
+| `newData.exists()` | **削除できない** |
+| `score >= 既存` | **記録を下げられない。** 同じ点数での書き直し（改名）は通る |
 | `.indexOn` | `orderBy="score"` での取得に必要 |
 | `name` の検証 | 1〜12文字の文字列のみ |
 | `score` の検証 | 0〜100,000 の数値のみ |
