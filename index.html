@@ -115,7 +115,7 @@
         <p class="skin-name" data-skin-name></p>
       </div>
 
-      <p class="howto">画面を指でなぞって操作（上下にも少しだけ動けます）<br>PC は ← → / A・D、↑ ↓ / W・S<br>画面下の風に流されます。雲・破片・鳥を避けて、少しでも高く。</p>
+      <p class="howto">スマホは画面下のボタンで操作<br>PC は ← → / A・D、↑ ↓ / W・S<br>画面下の風に流されます。雲・破片・鳥を避けて、少しでも高く。</p>
     </div>
 
     <div class="overlay hidden" id="result-screen">
@@ -131,6 +131,18 @@
         <div class="skin-row" data-skin-picker></div>
         <p class="skin-name" data-skin-name></p>
       </div>
+    </div>
+  </div>
+
+  <!-- タッチ端末でのみ表示。盤面自体はタッチに反応しない -->
+  <div id="pad">
+    <div class="pad-lr">
+      <button class="pad-btn" type="button" data-dir="left"  aria-label="左へ">←</button>
+      <button class="pad-btn" type="button" data-dir="right" aria-label="右へ">→</button>
+    </div>
+    <div class="pad-ud">
+      <button class="pad-btn pad-small" type="button" data-dir="up"   aria-label="上へ">↑</button>
+      <button class="pad-btn pad-small" type="button" data-dir="down" aria-label="下へ">↓</button>
     </div>
   </div>
 

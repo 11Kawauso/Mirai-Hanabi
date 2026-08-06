@@ -191,6 +191,51 @@ canvas{
 }
 .skin-unlock.hidden{ display:none; }
 
+/* ---- 操作ボタン（タッチ端末のみ） ---------------------------------------
+   盤面はタッチを一切受け付けないので、操作はここに集約する。 */
+#pad{
+  display:none;
+  width:var(--board-w);
+  gap:10px;
+  align-items:stretch;
+  touch-action:none;
+  user-select:none;
+}
+.pad-lr{ display:flex; flex:1 1 auto; gap:10px; }
+.pad-ud{ display:flex; flex-direction:column; flex:0 0 auto; gap:6px; }
+.pad-btn{
+  appearance:none; cursor:pointer;
+  flex:1 1 0; min-width:0;
+  border:1px solid rgba(41,241,255,0.35);
+  border-radius:14px;
+  background:rgba(41,241,255,0.10);
+  color:rgba(238,242,255,0.92);
+  font-family:inherit; font-size:26px; line-height:1;
+  padding:0;
+  height:66px;
+  touch-action:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.pad-btn:active{
+  background:rgba(41,241,255,0.28);
+  border-color:var(--cyan);
+}
+.pad-small{
+  width:60px; height:30px;
+  font-size:17px;
+  border-radius:10px;
+}
+
+/* タッチ端末では盤を少し小さくしてボタンの居場所を作る */
+@media (hover: none){
+  :root{
+    --board-w:min(94vw, 480px, calc((96vh - 120px) * 480 / 800));
+    --board-w:min(94vw, 480px, calc((96dvh - 120px) * 480 / 800));
+  }
+  #stage{ flex-direction:column; gap:12px; }
+  #pad{ display:flex; }
+}
+
 /* ---- 解説パネル ---------------------------------------------------------
    ゲーム盤の左の余白を使う。盤(最大480px)＋パネル＋余白が収まる幅から出す。 */
 #guide{

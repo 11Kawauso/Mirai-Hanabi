@@ -492,10 +492,6 @@
   const player = { x: GAME_W/2, y: LAUNCH_Y, vx: 0, r: 9 };
   let keyLeft = false, keyRight = false;
   let moveUp = false, moveDown = false;
-  // drag steering: where the finger is asking the shot to go (null = not dragging)
-  let dragTargetX = null, dragTargetY = null;
-  let dragPointerId = null;
-  let lastPointer = null;
   let launchTimer = 0;
   let muzzleParticles = [];
   let cloudWallTimer = 6;
@@ -622,7 +618,6 @@
     player.x = GAME_W/2;
     player.y = LAUNCH_Y;
     player.vx = 0;
-    clearDrag();
     boost = 1;
     windSpeed = 0; // every run starts calm, then builds once the gauge appears
     windTarget = 0;
@@ -843,8 +838,6 @@
       if(t >= 1){
         player.y = PLAYER_Y;
         state = 'playing';
-        // a finger held through the launch animation shouldn't yank the shot on the first frame
-        if(dragPointerId !== null){ dragTargetX = player.x; dragTargetY = player.y; }
       }
     }
 
@@ -887,19 +880,16 @@
     }
 
     if(state === 'playing'){
-      // keyboard wins while a key is held; otherwise the shot chases the drag target,
-      // capped at the same speed so touch is never easier than keys
+      // buttons and keys feed the same flags, so both routes move identically
       let vx = 0;
       if(keyLeft) vx -= MOVE_SPEED_X;
       if(keyRight) vx += MOVE_SPEED_X;
-      if(vx !== 0) player.x += vx*dt;
-      else if(dragTargetX !== null) player.x += stepToward(dragTargetX - player.x, MOVE_SPEED_X*dt);
+      player.x += vx*dt;
 
       let vy = 0;
       if(moveUp) vy -= MOVE_SPEED_Y;
       if(moveDown) vy += MOVE_SPEED_Y;
-      if(vy !== 0) player.y += vy*dt;
-      else if(dragTargetY !== null) player.y += stepToward(dragTargetY - player.y, MOVE_SPEED_Y*dt);
+      player.y += vy*dt;
       player.y = clamp(player.y, PLAYER_Y-VERTICAL_RANGE, PLAYER_Y+VERTICAL_RANGE);
 
       spawnTimer -= dt;
@@ -941,9 +931,6 @@
       const windPx = windSpeed * WIND_PX_PER_MS;
 
       player.x += windPx*dt;
-      // the drag target has to ride the wind too, otherwise a held finger keeps
-      // steering back to its old spot and silently cancels the drift out
-      if(dragTargetX !== null) dragTargetX = clamp(dragTargetX + windPx*dt, 0, GAME_W);
 
       // above WIND_DEBRIS_MIN the gale starts throwing junk across the screen,
       // more often the harder it blows
@@ -1547,54 +1534,30 @@
     if(e.code === 'ArrowDown' || e.code === 'KeyS') moveDown = false;
   });
 
-  // ---- drag steering (touch + mouse, via Pointer Events) --------------------
-  // Relative drag, not absolute: the shot moves by however far the finger has
-  // travelled, so it never teleports underneath your thumb where you can't see it.
-
-  function toGameCoords(clientX, clientY){
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left) * (GAME_W / rect.width),
-      y: (clientY - rect.top) * (GAME_H / rect.height)
-    };
+  // ---- on-screen pad --------------------------------------------------------
+  // The canvas itself takes no touch input at all; steering is entirely through
+  // these buttons, so a stray tap or swipe on the play area does nothing.
+  function bindPad(btn, apply){
+    const set = (v) => (e) => { e.preventDefault(); apply(v); };
+    btn.addEventListener('pointerdown', set(true));
+    btn.addEventListener('pointerup', set(false));
+    btn.addEventListener('pointercancel', set(false));
+    btn.addEventListener('pointerleave', set(false)); // sliding off releases it
+    btn.addEventListener('contextmenu', (e) => e.preventDefault());
   }
-
-  function clearDrag(){
-    dragPointerId = null;
-    lastPointer = null;
-    dragTargetX = null;
-    dragTargetY = null;
+  const PAD_KEYS = {
+    left:  (v) => { keyLeft = v; },
+    right: (v) => { keyRight = v; },
+    up:    (v) => { moveUp = v; },
+    down:  (v) => { moveDown = v; }
+  };
+  for(const btn of document.querySelectorAll('[data-dir]')){
+    const apply = PAD_KEYS[btn.dataset.dir];
+    if(apply) bindPad(btn, apply);
   }
-
-  wrap.addEventListener('pointerdown', (e) => {
-    // ignore while the start/result overlay is up so the buttons still work
-    if(state !== 'playing' && state !== 'launching') return;
-    if(dragPointerId !== null) return; // first finger down owns the shot
-    dragPointerId = e.pointerId;
-    lastPointer = toGameCoords(e.clientX, e.clientY);
-    dragTargetX = player.x;
-    dragTargetY = player.y;
-  });
-
-  window.addEventListener('pointermove', (e) => {
-    if(e.pointerId !== dragPointerId || lastPointer === null) return;
-    const g = toGameCoords(e.clientX, e.clientY);
-    // target stays clamped in bounds, otherwise dragging past the edge builds up
-    // slack you'd have to drag all the way back before the shot responds again
-    dragTargetX = clamp(dragTargetX + (g.x - lastPointer.x), 0, GAME_W);
-    dragTargetY = clamp(dragTargetY + (g.y - lastPointer.y), PLAYER_Y-VERTICAL_RANGE, PLAYER_Y+VERTICAL_RANGE);
-    lastPointer = g;
-  });
-
-  function endDrag(e){
-    if(e.pointerId === dragPointerId) clearDrag();
-  }
-  window.addEventListener('pointerup', endDrag);
-  window.addEventListener('pointercancel', endDrag);
 
   // an incoming call or a swiped-away tab must not leave inputs stuck on
   window.addEventListener('blur', () => {
-    clearDrag();
     keyLeft = keyRight = moveUp = moveDown = false;
   });
 
