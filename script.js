@@ -118,39 +118,6 @@
   let bestHeightM = Math.max(0, parseFloat(load(STORE_BEST, '0')) || 0);
   let bestBeforeRun = bestHeightM; // to spot skins unlocked by the run just finished
 
-  // ===========================================================================
-  // TEMPORARY DEV SWITCHES - REMOVE BEFORE SUBMITTING
-  // Only ever activated by a URL query, so opening index.html normally is
-  // completely unaffected. Records are NOT saved while any switch is on, so
-  // testing can't pollute a real best height.
-  //     index.html?h=15000        start every launch at 15,000m
-  //     index.html?skins          unlock every skin
-  //     index.html?h=20000&skins  both
-  // To remove: delete this block, the two `DEV.` reads in isUnlocked() and
-  // reset(), the `!DEV.on` guard in triggerExplosion(), devElapsedFor(),
-  // drawDevBadge() and its call in draw().
-  // ===========================================================================
-  const DEV = (() => {
-    const off = { startH:0, allSkins:false, on:false };
-    try{
-      const q = new URLSearchParams(location.search);
-      const h = Math.max(0, parseFloat(q.get('h')) || 0);
-      const allSkins = q.has('skins');
-      return { startH:h, allSkins, on: h > 0 || allSkins };
-    }catch(e){ return off; }
-  })();
-
-  // Inverse of the climb curve, so a mid-air start also gets the scroll speed it
-  // would really have had at that altitude instead of a lazy 90px/s.
-  function devElapsedFor(h){
-    const capT = (SCROLL_CAP - SCROLL_BASE) / SCROLL_RATE;
-    const capH = (SCROLL_BASE*capT + SCROLL_RATE*capT*capT/2) / PIXELS_PER_METER;
-    if(h <= capH){ // invert  (B·t + R·t²/2)/PPM = h
-      return (-SCROLL_BASE + Math.sqrt(SCROLL_BASE*SCROLL_BASE + 2*SCROLL_RATE*PIXELS_PER_METER*h)) / SCROLL_RATE;
-    }
-    return capT + (h - capH) * PIXELS_PER_METER / SCROLL_CAP;
-  }
-
   // ---- ranking --------------------------------------------------------------
   // Firebase Realtime Database over its REST interface: no SDK, no API key, just
   // the database URL. What guards the data is the security rules you paste in
@@ -400,7 +367,7 @@
   // a cleared best must not leave a locked skin equipped
   if(bestHeightM < SKINS[skinIndex].unlock) skinIndex = 0;
   function skin(){ return SKINS[skinIndex]; }
-  function isUnlocked(s){ return DEV.allSkins || bestHeightM >= s.unlock; }
+  function isUnlocked(s){ return bestHeightM >= s.unlock; }
 
   function selectSkin(i){
     if(!isUnlocked(SKINS[i])) return;
@@ -604,11 +571,6 @@
     particles = [];
     muzzleParticles = [];
     elapsed = 0;
-    if(DEV.startH > 0){ // dev: drop in mid-flight, at the speed that altitude implies
-      heightM = DEV.startH;
-      elapsed = devElapsedFor(DEV.startH);
-      scrollSpeed = Math.min(SCROLL_CAP, SCROLL_BASE + elapsed*SCROLL_RATE);
-    }
     player.x = GAME_W/2;
     player.y = LAUNCH_Y;
     player.vx = 0;
@@ -767,8 +729,7 @@
         color: sk.palette[Math.floor(Math.random()*sk.palette.length)]
       });
     }
-    // !DEV.on: a dev drop-in at 20,000m must never overwrite a real record
-    if(!DEV.on && heightM > bestHeightM){
+    if(heightM > bestHeightM){
       bestHeightM = heightM;
       save(STORE_BEST, String(Math.floor(bestHeightM)));
     }
@@ -791,7 +752,7 @@
     renderSkins(); // unlock states may have changed
 
     // only a genuine personal best goes to the board, so replaying doesn't spam it
-    if(!DEV.on && bestHeightM > bestBeforeRun){
+    if(bestHeightM > bestBeforeRun){
       localSubmit(displayName(), Math.floor(bestHeightM));
       submitScore(bestHeightM).catch(() => {}); // fire and forget; the panel copes on its own
     }
@@ -1450,21 +1411,6 @@
     ctx.restore();
   }
 
-  // TEMPORARY - remove with the DEV block
-  function drawDevBadge(){
-    if(!DEV.on) return;
-    const bits = [];
-    if(DEV.startH) bits.push('start ' + DEV.startH + 'm');
-    if(DEV.allSkins) bits.push('all skins');
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,80,80,0.9)';
-    ctx.font = 'bold 10px system-ui,sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('DEV MODE - ' + bits.join(' / ') + ' - records not saved', GAME_W/2, 58);
-    ctx.restore();
-  }
-
   function draw(){
     ctx.clearRect(0,0,GAME_W,GAME_H);
     drawSky();
@@ -1512,7 +1458,6 @@
     ctx.restore();
 
     drawWindGauge(); // HUD, never scaled
-    drawDevBadge();  // TEMPORARY
   }
 
   let lastTime = 0;
