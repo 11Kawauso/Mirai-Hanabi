@@ -130,6 +130,7 @@
   const RANKING_FETCH = 200;// pulled before de-duplicating by name
   const STORE_NAME = 'mirai-hanabi.name';
   const STORE_LOCAL_RANK = 'mirai-hanabi.rank';
+  const STORE_SENT = 'mirai-hanabi.sent'; // highest score the board has actually accepted
   const rankingOnline = () => RANKING_DB !== '';
 
   const nameInput = document.getElementById('name-input');
@@ -139,6 +140,9 @@
   const rankMe = document.getElementById('rank-me');
 
   let playerName = String(load(STORE_NAME, '')).slice(0, 12);
+  // Tracked separately from bestHeightM: a best set while offline, or one whose
+  // upload failed, must still get sent on a later run.
+  let sentBest = Number(load(STORE_SENT, '0')) || 0;
   if(nameInput) nameInput.value = playerName;
   const displayName = () => playerName.trim() || 'ななし';
 
@@ -180,11 +184,34 @@
 
   async function submitScore(score){
     if(!rankingOnline()) return;
-    await fetch(`${RANKING_DB}/${RANKING_PATH}.json`, {
+    const res = await fetch(`${RANKING_DB}/${RANKING_PATH}.json`, {
       method: 'POST', // push: creates a new child, never touches existing ones
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: displayName(), score: Math.floor(score) })
     });
+    // a rules rejection comes back as a normal response, so it has to be checked
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+  }
+
+  // Submit first, THEN reload. Firing the upload and immediately re-reading
+  // raced the write, so a fresh score was never in the list that came back.
+  async function reportScore(){
+    if(bestHeightM > sentBest){
+      localSubmit(displayName(), Math.floor(bestHeightM));
+      try{
+        await submitScore(bestHeightM);
+        sentBest = Math.floor(bestHeightM);
+        save(STORE_SENT, String(sentBest));
+      }catch(e){
+        await refreshRanking();
+        if(rankStatus){
+          rankStatus.textContent = '記録を送信できませんでした（次回もう一度試します）';
+          rankStatus.classList.add('err');
+        }
+        return;
+      }
+    }
+    await refreshRanking();
   }
 
   function rankRow(rank, name, score, mine){
@@ -249,6 +276,9 @@
     playerName = String(v || '').slice(0, 12).trim();
     save(STORE_NAME, playerName);
     if(nameInput) nameInput.value = playerName;
+    // the new name has no entry on the board yet, so allow the best to go up again
+    sentBest = 0;
+    save(STORE_SENT, '0');
     refreshRanking();
   }
   if(nameSave) nameSave.addEventListener('click', () => setName(nameInput.value));
@@ -751,12 +781,7 @@
     }
     renderSkins(); // unlock states may have changed
 
-    // only a genuine personal best goes to the board, so replaying doesn't spam it
-    if(bestHeightM > bestBeforeRun){
-      localSubmit(displayName(), Math.floor(bestHeightM));
-      submitScore(bestHeightM).catch(() => {}); // fire and forget; the panel copes on its own
-    }
-    refreshRanking();
+    reportScore(); // only a genuine improvement is uploaded, so replays don't spam it
 
     resultScreen.classList.remove('hidden');
   }
