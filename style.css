@@ -25,6 +25,8 @@ html,body{
   overscroll-behavior:none;
   -webkit-tap-highlight-color:transparent;
   -webkit-touch-callout:none;
+  /* iOS Safari は -webkit- 付きでないと効かない。無いと長押しで選択メニューが出る */
+  -webkit-user-select:none;
   user-select:none;
 }
 /* 盤は常に画面のど真ん中。解説パネルは左の余白に絶対配置で浮かせるので、
@@ -199,6 +201,8 @@ canvas{
   gap:10px;
   align-items:stretch;
   touch-action:none;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
   user-select:none;
 }
 .pad-lr{ display:flex; flex:1 1 auto; gap:10px; }
@@ -206,25 +210,40 @@ canvas{
 .pad-btn{
   appearance:none; cursor:pointer;
   flex:1 1 0; min-width:0;
+  display:flex; align-items:center; justify-content:center;
   border:1px solid rgba(41,241,255,0.35);
   border-radius:14px;
   background:rgba(41,241,255,0.10);
   color:rgba(238,242,255,0.92);
-  font-family:inherit; font-size:26px; line-height:1;
+  font-family:inherit; line-height:1;
   padding:0;
   height:66px;
   touch-action:none;
   -webkit-tap-highlight-color:transparent;
+  /* ボタンはUA既定で選択が復活しうるので個別に殺す */
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
 }
 .pad-btn:active{
   background:rgba(41,241,255,0.28);
   border-color:var(--cyan);
 }
+/* 矢印アイコン。ポインタイベントはボタン側で受けたいので透過させる */
+.pad-ico{
+  width:28px; height:28px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  pointer-events:none;
+}
 .pad-small{
   width:60px; height:30px;
-  font-size:17px;
   border-radius:10px;
 }
+.pad-small .pad-ico{ width:18px; height:18px; }
 
 /* タッチ端末では盤を少し小さくしてボタンの居場所を作る */
 @media (hover: none){

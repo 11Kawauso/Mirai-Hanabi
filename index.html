@@ -134,15 +134,24 @@
     </div>
   </div>
 
-  <!-- タッチ端末でのみ表示。盤面自体はタッチに反応しない -->
+  <!-- タッチ端末でのみ表示。盤面自体はタッチに反応しない。
+       矢印は SVG。文字だと長押しでテキスト選択が走り、コピー/検索のメニューが出てしまう -->
   <div id="pad">
     <div class="pad-lr">
-      <button class="pad-btn" type="button" data-dir="left"  aria-label="左へ">←</button>
-      <button class="pad-btn" type="button" data-dir="right" aria-label="右へ">→</button>
+      <button class="pad-btn" type="button" data-dir="left"  aria-label="左へ">
+        <svg class="pad-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12H4m0 0 7-7m-7 7 7 7"/></svg>
+      </button>
+      <button class="pad-btn" type="button" data-dir="right" aria-label="右へ">
+        <svg class="pad-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12h16m0 0-7-7m7 7-7 7"/></svg>
+      </button>
     </div>
     <div class="pad-ud">
-      <button class="pad-btn pad-small" type="button" data-dir="up"   aria-label="上へ">↑</button>
-      <button class="pad-btn pad-small" type="button" data-dir="down" aria-label="下へ">↓</button>
+      <button class="pad-btn pad-small" type="button" data-dir="up"   aria-label="上へ">
+        <svg class="pad-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20V4m0 0-7 7m7-7 7 7"/></svg>
+      </button>
+      <button class="pad-btn pad-small" type="button" data-dir="down" aria-label="下へ">
+        <svg class="pad-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4v16m0 0 7-7m-7 7-7-7"/></svg>
+      </button>
     </div>
   </div>
 
