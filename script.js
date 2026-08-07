@@ -1,7 +1,9 @@
 (() => {
   const GAME_W = 480, GAME_H = 800;
   const PLAYER_Y = GAME_H * 0.62;
-  const PIXELS_PER_METER = 6;
+  // 画面が 1px 流れて何メートル稼ぐか。小さいほど高度の伸びが速い。
+  // 見た目の流れる速さ（= 避けにくさ）は変えずに数字の伸びだけを上げられる
+  const PIXELS_PER_METER = 5;
   const PLAY_LEFT = 26, PLAY_RIGHT = GAME_W - 26; // side walls: hit them and it's over
   const LAUNCH_Y = GAME_H - 54; // cannon mouth height
   const LAUNCH_DURATION = 0.85;
@@ -12,11 +14,11 @@
   const BOOST_DURATION = 1.2;   // how long the muzzle kick keeps pushing after firing
   const BOOST_EXTRA = 340;      // px/s piled on top of cruise speed at t=0, eased to 0
 
-  // Climb rate. Tuned so the speed is still creeping up all the way to 30,000m
-  // instead of pinning a tenth of the way in.
+  // Climb rate. Tuned so the speed is still creeping up all the way to the top
+  // of the scale instead of pinning a tenth of the way in.
   const SCROLL_BASE = 90;
   const SCROLL_RATE = 0.38;     // px/s gained per second survived
-  const SCROLL_CAP  = 370;      // only reached a shade before 30,000m
+  const SCROLL_CAP  = 370;      // only reached around 34,000m
 
   // Wind. A signed speed in m/s (negative = blowing left) that never sits still:
   // it eases toward a fresh target every dozen-odd seconds, and that target is
@@ -906,7 +908,8 @@
       spawnTimer -= dt;
       if(spawnTimer <= 0){
         spawnObstacle();
-        spawnTimer = Math.max(0.45, 1.15 - elapsed*0.01);
+        // 間隔が詰まりきるまでを緩やかにして、最短間隔も広げてある
+        spawnTimer = Math.max(0.58, 1.35 - elapsed*0.009);
       }
 
       if(heightM >= CUMULO_MIN_H){
