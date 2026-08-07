@@ -124,7 +124,7 @@
         <p class="skin-name" data-skin-name></p>
       </div>
 
-      <p class="howto">スマホは画面下のボタンで操作<br>PC は ← → / A・D、↑ ↓ / W・S<br>画面下の風に流されます。雲・破片・鳥を避けて、少しでも高く。</p>
+      <p class="howto">スマホは画面下のボタン／スティックで操作（切替ボタンで変更）<br>PC は ← → / A・D、↑ ↓ / W・S<br>画面下の風に流されます。雲・破片・鳥を避けて、少しでも高く。</p>
     </div>
 
     <div class="overlay hidden" id="result-screen">
@@ -160,6 +160,16 @@
     <button class="pad-btn" type="button" data-dir="right" aria-label="右へ">
       <svg class="pad-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12h16m0 0-7-7m7 7-7 7"/></svg>
     </button>
+
+    <!-- スティック操作。ボタンと同じ枠に入れて、モードで出し分ける -->
+    <div id="stick" role="application" aria-label="操作スティック">
+      <div id="stick-knob"></div>
+    </div>
+  </div>
+
+  <!-- ↓ボタンの真下。スティックにしても同じ位置に残る -->
+  <div id="ctrl-switch">
+    <button id="ctrl-toggle" type="button"></button>
   </div>
 
   <!-- スワイプで開けることは知らないと気づけないので、盤の下に出しておく -->

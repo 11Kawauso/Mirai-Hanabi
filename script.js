@@ -492,6 +492,8 @@
   const player = { x: GAME_W/2, y: LAUNCH_Y, vx: 0, r: 9 };
   let keyLeft = false, keyRight = false;
   let moveUp = false, moveDown = false;
+  // スティックの倒し具合。-1〜1 で、ボタン/キーと同じ最高速度に正規化して使う
+  let stickX = 0, stickY = 0;
   let launchTimer = 0;
   let muzzleParticles = [];
   let cloudWallTimer = 6;
@@ -784,6 +786,7 @@
   function endToResult(){
     state = 'result';
     document.body.classList.remove('playing'); // スワイプを解禁する
+    stickRelease(); // 倒したまま終わってもノブは中央へ戻す
     resultHeight.textContent = Math.floor(heightM) + 'm';
     resultBest.textContent = '自己ベスト ' + Math.floor(bestHeightM) + 'm';
     hudBest.textContent = Math.floor(bestHeightM) + 'm';
@@ -884,16 +887,20 @@
     }
 
     if(state === 'playing'){
-      // buttons and keys feed the same flags, so both routes move identically
+      // buttons and keys feed the same flags, so both routes move identically.
+      // The stick adds an analog term, clamped to the same ceiling so that no
+      // input method is faster than another — the leaderboard has to stay fair.
       let vx = 0;
       if(keyLeft) vx -= MOVE_SPEED_X;
       if(keyRight) vx += MOVE_SPEED_X;
-      player.x += vx*dt;
+      vx += stickX * MOVE_SPEED_X;
+      player.x += clamp(vx, -MOVE_SPEED_X, MOVE_SPEED_X)*dt;
 
       let vy = 0;
       if(moveUp) vy -= MOVE_SPEED_Y;
       if(moveDown) vy += MOVE_SPEED_Y;
-      player.y += vy*dt;
+      vy += stickY * MOVE_SPEED_Y;
+      player.y += clamp(vy, -MOVE_SPEED_Y, MOVE_SPEED_Y)*dt;
       player.y = clamp(player.y, PLAYER_Y-VERTICAL_RANGE, PLAYER_Y+VERTICAL_RANGE);
 
       spawnTimer -= dt;
@@ -1560,9 +1567,96 @@
     if(apply) bindPad(btn, apply);
   }
 
+  // ---- analogue stick -------------------------------------------------------
+  // Same 120px circle the CSS draws: drag anywhere inside it and the knob
+  // follows, capped to the rim. Released, it springs back to dead centre.
+  const stick = document.getElementById('stick');
+  const knob = document.getElementById('stick-knob');
+  const STICK_DEAD = 0.12; // 指を置いただけの微動で流されないよう中央を殺す
+  let stickId = null;
+
+  function stickTo(dx, dy){
+    // 可動半径。基準はノブが枠からはみ出さない距離
+    const r = (stick.clientWidth - knob.offsetWidth) / 2;
+    const d = Math.hypot(dx, dy);
+    const fit = (d > r && d > 0) ? r/d : 1; // 円の外へは出さない
+    knob.style.transform = `translate(${dx*fit}px, ${dy*fit}px)`;
+    if(d === 0){ stickX = stickY = 0; return; }
+    // デッドゾーンを引いた残りを 0〜1 に引き直す。境目で速度が飛ばない
+    const m = Math.min(d/r, 1);
+    const gain = m <= STICK_DEAD ? 0 : (m - STICK_DEAD) / (1 - STICK_DEAD);
+    stickX = (dx/d) * gain;
+    stickY = (dy/d) * gain;
+  }
+
+  function stickRelease(){
+    stickId = null;
+    stickX = stickY = 0;
+    stick.classList.remove('active');
+    knob.style.transform = 'translate(0px, 0px)';
+  }
+
+  function stickFrom(e){
+    const b = stick.getBoundingClientRect();
+    stickTo(e.clientX - (b.left + b.width/2), e.clientY - (b.top + b.height/2));
+  }
+
+  stick.addEventListener('pointerdown', (e) => {
+    if(stickId !== null) return; // 二本目の指は無視する
+    stickId = e.pointerId;
+    // 捕捉できなくても操作自体は続けられる。ここで投げさせて掴んだままにしない
+    try{ stick.setPointerCapture(e.pointerId); }catch(err){ /* 枠外に出たら離すだけ */ }
+    stick.classList.add('active');
+    stickFrom(e);
+    e.preventDefault();
+  });
+  stick.addEventListener('pointermove', (e) => {
+    if(e.pointerId !== stickId) return;
+    stickFrom(e);
+    e.preventDefault();
+  });
+  for(const type of ['pointerup','pointercancel']){
+    stick.addEventListener(type, (e) => { if(e.pointerId === stickId) stickRelease(); });
+    // 捕捉に失敗して枠の外で指を離した場合の保険。掴みっぱなしで流され続けない
+    window.addEventListener(type, (e) => { if(e.pointerId === stickId) stickRelease(); });
+  }
+  stick.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ---- button / stick toggle ------------------------------------------------
+  const STORE_CTRL = 'mirai-hanabi.ctrl';
+  const ctrlToggle = document.getElementById('ctrl-toggle');
+  let stickMode = load(STORE_CTRL, 'button') === 'stick';
+
+  function applyCtrlMode(){
+    document.body.classList.toggle('stick-mode', stickMode);
+    // 「押すとどうなるか」を出す。今どちらかは見た目で分かる
+    ctrlToggle.textContent = stickMode ? 'ボタン操作に切替' : 'スティック操作に切替';
+    // 切り替えた瞬間に押しっぱなしが残ると勝手に流れ続けるので、両方落とす
+    keyLeft = keyRight = moveUp = moveDown = false;
+    stickRelease();
+  }
+  ctrlToggle.addEventListener('click', () => {
+    stickMode = !stickMode;
+    save(STORE_CTRL, stickMode ? 'stick' : 'button');
+    applyCtrlMode();
+  });
+  applyCtrlMode();
+
+  // ---- pinch / double-tap zoom ----------------------------------------------
+  // iOS Safari は viewport の user-scalable=no を無視するので、実際に拡大を
+  // 止めるには Safari 独自の gesture イベントと二本指の touchmove を潰す。
+  for(const type of ['gesturestart','gesturechange','gestureend']){
+    document.addEventListener(type, (e) => e.preventDefault(), { passive:false });
+  }
+  document.addEventListener('touchmove', (e) => {
+    if(e.touches.length > 1) e.preventDefault();
+  }, { passive:false });
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive:false });
+
   // an incoming call or a swiped-away tab must not leave inputs stuck on
   window.addEventListener('blur', () => {
     keyLeft = keyRight = moveUp = moveDown = false;
+    stickRelease();
   });
 
   // ---- swipe-in panels ------------------------------------------------------

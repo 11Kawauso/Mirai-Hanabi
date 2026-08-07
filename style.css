@@ -28,6 +28,9 @@ html,body{
   /* iOS Safari は -webkit- 付きでないと効かない。無いと長押しで選択メニューが出る */
   -webkit-user-select:none;
   user-select:none;
+  /* 縦スクロールだけ許可。ピンチ拡大とダブルタップ拡大はこれで塞ぐ
+     （iOS は viewport の user-scalable=no を無視するので JS 側でも止める） */
+  touch-action:pan-y;
 }
 /* 盤は常に画面のど真ん中。解説パネルは左の余白に絶対配置で浮かせるので、
    パネルの有無で盤の位置がずれない */
@@ -198,15 +201,21 @@ canvas{
 #pad{
   display:none;
   width:var(--board-w);
+  /* モードを切り替えても盤の大きさが変わらないよう、高さはスティック基準で固定。
+     flex:0 0 auto がないと #stage が縦に詰まったときここだけ潰れる */
+  height:120px;
+  flex:0 0 auto;
   gap:10px;
-  align-items:stretch;
+  align-items:center;
+  justify-content:center;
   touch-action:none;
   -webkit-touch-callout:none;
   -webkit-user-select:none;
   user-select:none;
 }
-/* 左右ボタンで挟んで、上下ボタンは真ん中に縦積み */
-.pad-ud{ display:flex; flex-direction:column; flex:0 0 auto; gap:6px; justify-content:center; }
+/* 左右ボタンで挟んで、上下ボタンは真ん中に縦積み。
+   高さは #pad いっぱいに使う（指が届く面積を稼ぐ） */
+.pad-ud{ display:flex; flex-direction:column; flex:0 0 auto; height:100%; gap:6px; }
 .pad-btn{
   appearance:none; cursor:pointer;
   flex:1 1 0; min-width:0;
@@ -217,7 +226,7 @@ canvas{
   color:rgba(238,242,255,0.92);
   font-family:inherit; line-height:1;
   padding:0;
-  height:66px;
+  height:100%;
   touch-action:none;
   -webkit-tap-highlight-color:transparent;
   /* ボタンはUA既定で選択が復活しうるので個別に殺す */
@@ -240,19 +249,81 @@ canvas{
   pointer-events:none;
 }
 .pad-small{
-  width:60px; height:30px;
+  width:60px;
+  height:auto; flex:1 1 0; /* 上下で #pad の高さを分け合う */
   border-radius:10px;
 }
-.pad-small .pad-ico{ width:18px; height:18px; }
+.pad-small .pad-ico{ width:20px; height:20px; }
+
+/* ---- スティック操作 -------------------------------------------------------
+   ボタンと同じ枠に置いて、body.stick-mode で入れ替える。 */
+#stick{
+  display:none;
+  position:relative;
+  flex:0 0 auto;
+  width:120px; height:120px;
+  border:1px solid rgba(41,241,255,0.30);
+  border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, rgba(41,241,255,0.12), rgba(41,241,255,0.03) 72%);
+  touch-action:none;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none; user-select:none;
+}
+#stick-knob{
+  position:absolute; left:50%; top:50%;
+  width:50px; height:50px; margin:-25px 0 0 -25px;
+  border:1px solid rgba(41,241,255,0.55);
+  border-radius:50%;
+  background:radial-gradient(circle at 38% 34%,
+    rgba(238,242,255,0.38), rgba(41,241,255,0.22) 58%, rgba(41,241,255,0.10));
+  box-shadow:0 0 14px rgba(41,241,255,0.35);
+  pointer-events:none;
+  /* 離したときだけ中央へ戻す。掴んでいる間は指に遅れないよう transition を切る */
+  transition:transform .12s ease-out;
+}
+#stick.active #stick-knob{ transition:none; }
+
+body.stick-mode #stick{ display:block; }
+body.stick-mode #pad > [data-dir],
+body.stick-mode .pad-ud{ display:none; }
+
+/* ---- 操作方法の切替ボタン ------------------------------------------------- */
+#ctrl-switch{
+  display:none;
+  flex:0 0 auto;
+  width:var(--board-w);
+  justify-content:center;
+}
+#ctrl-toggle{
+  appearance:none; cursor:pointer;
+  padding:7px 16px;
+  border:1px solid rgba(238,242,255,0.22);
+  border-radius:999px;
+  background:rgba(238,242,255,0.06);
+  color:rgba(238,242,255,0.75);
+  font-family:inherit; font-size:11px; font-weight:700; letter-spacing:0.04em;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none; user-select:none;
+}
+#ctrl-toggle:active{
+  background:rgba(41,241,255,0.18);
+  border-color:rgba(41,241,255,0.5);
+  color:var(--cyan);
+}
 
 /* タッチ端末では盤を少し小さくしてボタンの居場所を作る */
 @media (hover: none){
+  /* 96dvh の残り 4dvh は #stage の上下パディング。
+     引く 215px の内訳: 隙間12×3 + パッド120 + 切替34 + 案内17 + 余裕8 */
   :root{
-    --board-w:min(94vw, 480px, calc((96vh - 150px) * 480 / 800));
-    --board-w:min(94vw, 480px, calc((96dvh - 150px) * 480 / 800));
+    --board-w:min(94vw, 480px, calc((96vh - 215px) * 480 / 800));
+    --board-w:min(94vw, 480px, calc((96dvh - 215px) * 480 / 800));
   }
   #stage{ flex-direction:column; gap:12px; }
   #pad{ display:flex; }
+  #ctrl-switch{ display:flex; }
 }
 
 
