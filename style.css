@@ -12,7 +12,15 @@
 @supports (height:100dvh){
   :root{ --board-w:min(94vw, 480px, calc(96dvh * 480 / 800)); }
 }
-*{box-sizing:border-box;}
+*{
+  box-sizing:border-box;
+  /* touch-action は継承しないので、全要素に配らないと子の上でダブルタップ拡大が
+     生き残る（iOS が拡大先を示す角丸の枠が出てしまう）。
+     縦スクロールだけ残すので、パネルのスクロールには影響しない。
+     #wrap / #pad / #stick の none は詳細度で勝つのでそのまま効く */
+  touch-action:pan-y;
+  -webkit-tap-highlight-color:transparent;
+}
 html,body{
   margin:0; padding:0; height:100%;
   /* dvh: iOS/Android のアドレスバー分だけ画面下が見切れるのを防ぐ（非対応環境は上の 100% にフォールバック） */
@@ -311,6 +319,16 @@ body.stick-mode .pad-ud{ display:none; }
   background:rgba(41,241,255,0.18);
   border-color:rgba(41,241,255,0.5);
   color:var(--cyan);
+}
+
+/* 指で押したあとに焦点の枠が残らないようにする。
+   :focus-visible は残すので、キーボードで辿ったときは今まで通り見える */
+.pad-btn:focus, #ctrl-toggle:focus, #stick:focus,
+.panel-close:focus, .btn:focus, .skin-dot:focus{ outline:none; }
+.pad-btn:focus-visible, #ctrl-toggle:focus-visible,
+.panel-close:focus-visible, .btn:focus-visible, .skin-dot:focus-visible{
+  outline:2px solid var(--cyan);
+  outline-offset:2px;
 }
 
 /* タッチ端末では盤を少し小さくしてボタンの居場所を作る */
