@@ -89,9 +89,12 @@
     <div class="r-name">
       <label class="r-label" for="name-input">プレイヤー名</label>
       <div class="r-name-row">
-        <input id="name-input" type="text" maxlength="12" placeholder="ななし" autocomplete="off" spellcheck="false">
+        <!-- 上限は script.js 側で 12「文字」として掛ける。maxlength は UTF-16 単位を
+             数えるので、𠮟 のような2単位の漢字を過小に数えないよう緩めにしてある -->
+        <input id="name-input" type="text" maxlength="24" placeholder="ななし" autocomplete="off" spellcheck="false">
         <button id="name-save" type="button">保存</button>
       </div>
+      <p class="r-note">12文字まで／絵文字は使えません</p>
     </div>
 
     <p class="r-status" id="rank-status">読み込み中…</p>

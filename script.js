@@ -158,7 +158,29 @@
   const rankList = document.getElementById('rank-list');
   const rankMe = document.getElementById('rank-me');
 
-  let playerName = String(load(STORE_NAME, '')).slice(0, 12);
+  // ---- name sanitising -------------------------------------------------------
+  // Emoji are rejected outright. They cost two UTF-16 units each, so a 12-unit cut
+  // both undercounts them and can land mid-pair, which leaves a broken character
+  // on the public board. Barring them keeps "12 units" and "12 characters" equal.
+  // Extended_Pictographic alone misses two things: flags, which are pairs of
+  // regional-indicator letters, and skin-tone modifiers, which would otherwise be
+  // orphaned once their base emoji is stripped.
+  const NAME_MAX = 12;
+  const NAME_BANNED = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{FE0F}\u{20E3}\u{200D}]/gu;
+
+  // Cuts by code point, never by UTF-16 unit, so a two-unit kanji like 𠮟 survives
+  // whole. No trimming here: it runs while you type, and trimming would eat the
+  // space in "長岡 花火" the moment you pressed it.
+  function filterName(v){
+    const cleaned = String(v == null ? '' : v).replace(NAME_BANNED, '').replace(/\s+/g, ' ');
+    // 制御文字はコードポイント値で落とす。正規表現のエスケープを書かずに済む
+    return Array.from(cleaned)
+      .filter(ch => { const c = ch.codePointAt(0); return c >= 0x20 && c !== 0x7f; })
+      .slice(0, NAME_MAX).join('');
+  }
+  const sanitizeName = (v) => filterName(v).trim();
+
+  let playerName = sanitizeName(load(STORE_NAME, ''));
   // Tracked separately from bestHeightM: a best set while offline, or one whose
   // upload failed, must still get sent on a later run.
   let sentBest = Number(load(STORE_SENT, '0')) || 0;
@@ -207,7 +229,8 @@
       .filter(([, r]) => r)
       .map(([id, r]) => ({
         id,
-        name: String(r.name || '').slice(0,12) || 'ななし',
+        // 以前に絵文字入りで登録された行も、表示側で同じ規則に揃える
+        name: sanitizeName(r.name) || 'ななし',
         score: Number(r.score) || 0
       }))
       .sort((a,b) => b.score - a.score);
@@ -307,7 +330,7 @@
   }
 
   function setName(v){
-    playerName = String(v || '').slice(0, 12).trim();
+    playerName = sanitizeName(v);
     save(STORE_NAME, playerName);
     if(nameInput) nameInput.value = playerName;
     // Relabel the row we already own rather than starting a new one. Re-sending
@@ -318,9 +341,23 @@
     })();
   }
   if(nameSave) nameSave.addEventListener('click', () => setName(nameInput.value));
-  if(nameInput) nameInput.addEventListener('keydown', (e) => {
-    if(e.code === 'Enter' || e.key === 'Enter'){ setName(nameInput.value); nameInput.blur(); }
-  });
+  if(nameInput){
+    nameInput.addEventListener('keydown', (e) => {
+      if(e.code === 'Enter' || e.key === 'Enter'){ setName(nameInput.value); nameInput.blur(); }
+    });
+    // 打っている最中に弾く。保存時に黙って消えるより、その場で分かるほうがいい。
+    // 変換中は書き換えると IME が壊れるので、確定するまで手を出さない
+    let composing = false;
+    const scrub = () => {
+      if(composing) return;
+      const fixed = filterName(nameInput.value);
+      // 変化したときだけ書き戻す。毎回代入するとカーソルが末尾に飛ぶ
+      if(fixed !== nameInput.value) nameInput.value = fixed;
+    };
+    nameInput.addEventListener('compositionstart', () => { composing = true; });
+    nameInput.addEventListener('compositionend', () => { composing = false; scrub(); });
+    nameInput.addEventListener('input', scrub);
+  }
 
   // ---- burst shapes --------------------------------------------------------
   // Japanese "katamono" shells open into a figure rather than a ball. Each

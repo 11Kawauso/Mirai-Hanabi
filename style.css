@@ -434,6 +434,12 @@ body.stick-mode .pad-ud{ display:none; }
 }
 #name-save:active{ transform:translateY(1px); }
 
+.r-note{
+  margin:5px 0 0;
+  font-size:10px; letter-spacing:0.04em;
+  color:rgba(238,242,255,0.35);
+}
+
 .r-status{
   margin:0 0 10px;
   font-size:10px; letter-spacing:0.06em;
