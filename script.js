@@ -423,8 +423,12 @@
         // 一度も切り捨てられない。開いた瞬間の中心から、垂れ切った先端までが
         // ずっと一本で残る。巻き取り式だと中心が空き、落下の線も消えていた
         trail:140,
-        // 芯入りの二重構造。外殻の内側にもう一枚、速度を落とした花を作る
-        coreRatio:0.35, coreSpeed:0.45,
+        // 角度の散らし幅。1.0 で等分割の枠いっぱい、0 で完全な等間隔。
+        // 大きくすると隣同士が重なって隙間が空くので、控えめに散らす
+        spread:0.7,
+        // 芯入りの二重構造。外殻の内側にもう一枚、速度を落とした花を作る。
+        // coreSpread は速度の幅で、外殻との間の中途半端な半径も埋める
+        coreRatio:0.35, coreSpeed:0.45, coreSpread:0.25,
         pistilRatio:0.1, // 芯で光る色玉の割合
         pistil:['#ff69c0','#7dff9e','#b98bff','#ffffff']
       },
@@ -843,7 +847,7 @@
     if(shapeFn) count = Math.max(110, count);
     // 菊は花びらの本数で見える。低い高度で散っても形が出るよう下限を置き、
     // 一本ずつ尾を引く分だけ描画が重いので上限も締める
-    if(kiku) count = clamp(count, 420, 640);
+    if(kiku) count = clamp(count, 560, 900);
     const push = 0.6 + scale*0.5;
     // With drag, a spark coasts to v0/burstDrag - so the fastest spark tells us
     // how wide the flower opens, and gravity sags it further than that. The
@@ -854,6 +858,12 @@
     const pistilCount = kiku ? Math.round(count * kiku.pistilRatio) : 0;
     // 芯入りの内側の花。外殻と同じ本数比で撒くと外が薄くなるので割合で切る
     const coreCount = kiku ? Math.round(count * kiku.coreRatio) : 0;
+    const outerCount = count - pistilCount - coreCount;
+
+    // 角度を丸ごと乱数で振ると、隙間の大きさが指数分布になって必ず粗密ができる。
+    // 等分割した枠の中で少しだけ散らすと、隙間なく並びつつ機械的にも見えない。
+    // 層ごとに割り当てるので、内側の花も外殻もそれぞれ均等に回る
+    const spoke = (k, n) => ((k + 0.5 + (Math.random()-0.5)*kiku.spread) / n) * Math.PI*2;
 
     for(let i=0;i<count;i++){
       let vx, vy;
@@ -867,16 +877,19 @@
         const speed = (180 + Math.random()*35) * push;
         vx = p[0]*speed; vy = p[1]*speed;
       } else {
-        const angle = Math.random()*Math.PI*2;
+        const angle = kiku
+          ? (isCore ? spoke(i - pistilCount, coreCount)
+                    : spoke(i - pistilCount - coreCount, outerCount))
+          : Math.random()*Math.PI*2;
         // 菊は花びらが同じ長さで揃うほど本物らしい。散らばりを抑えて外周を作る
         let speed = (kiku ? (150 + Math.random()*70) : (70 + Math.random()*180)) * push;
-        // 内側の花は速度を落として、外殻の内側にもう一枚ぶんの層を作る
-        if(isCore) speed *= kiku.coreSpeed;
+        // 内側の花は速度を落として層を作る。幅を持たせて外殻との間も埋める
+        if(isCore) speed *= kiku.coreSpeed + Math.random()*kiku.coreSpread;
         vx = Math.cos(angle)*speed; vy = Math.sin(angle)*speed;
       }
       // 花びらより内側で止まり、尾を引かないので粒として際立つ
       if(isPistil){
-        const a = Math.random()*Math.PI*2;
+        const a = spoke(i, pistilCount);
         const s = (30 + Math.random()*45) * push;
         vx = Math.cos(a)*s; vy = Math.sin(a)*s;
       }
