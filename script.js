@@ -68,8 +68,11 @@
   const CUMULO_MIN_H = 10000;    // altitude they start forming at
   const CUMULO_GAP = 70, CUMULO_GAP_RAND = 60; // seconds between them
   const CUMULO_SPAN_M = 500, CUMULO_SPAN_RAND_M = 90; // metres of altitude one covers
-  const CUMULO_FADE = 110;       // px of soft edge entering and leaving
-  const CUMULO_MAX_ALPHA = 0.52; // screen wash; the cloud body adds ~0.28 on top
+  // 入口と出口でぼかす px。小さいほど早く真っ白になり、白いままの時間が延びる
+  const CUMULO_FADE = 80;
+  // 画面全体にかける白。障害物はこの下に描かれるので、上げるほど雲の中が見えなくなる。
+  // 雲の本体がさらに 0.28 を重ねる
+  const CUMULO_MAX_ALPHA = 0.7;
 
   // 尾に座標を刻む間隔(秒)。粗いほど区間は減るが、trail×これが尾の「長さ(秒)」
   const TAIL_STEP = 0.05;
