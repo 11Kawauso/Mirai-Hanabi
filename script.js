@@ -73,6 +73,17 @@
 
   // 尾に座標を刻む間隔(秒)。粗いほど区間は減るが、trail×これが尾の「長さ(秒)」
   const TAIL_STEP = 0.05;
+
+  // 爆発後のキラキラ。開いた瞬間は素直に光らせ、そこから瞬きを強めていく。
+  // 菊物(正三尺玉)は尾で見せる玉なので、こちらは適用しない。
+  // 底と山は、山の形 (0.5+0.5sin)^2 の平均 0.375 を掛けたときに
+  // 元の明るさとほぼ同じになるよう決めてある。0.35 + 1.55*0.375 ≒ 0.93。
+  // 下げるだけだと爆発が早く消えたように見えるので、山側で取り返す
+  const TWINKLE_START = 0.22; // 寿命のこの割合を過ぎてから瞬き始める
+  const TWINKLE_FADE  = 0.3;  // ここまでかけて瞬きが最大になる
+  const TWINKLE_MIN   = 0.35; // 瞬きの底
+  const TWINKLE_PEAK  = 1.9;  // 瞬きの山。1 を超えるぶんは頭打ちになって強く光る
+  const TWINKLE_RATE  = 14, TWINKLE_RATE_RAND = 22; // rad/s。粒ごとにばらす
   const BURST_SCALE_CAP = 7.5, BURST_SCALE_DIV = 4400; // spread grows to ~28,600m
   const BURST_COUNT_CAP = 300, BURST_COUNT_DIV = 105;  // density grows to ~30,000m
 
@@ -825,7 +836,11 @@
         // 尾は座標を x,y の平坦な配列で持つ。粒ごとに配列を作り直さない
         tail: (kiku && !isPistil) ? [] : null,
         tailMax: kiku ? kiku.trail : 0,
-        tailT: 0
+        tailT: 0,
+        // 瞬きの速さと位相。粒ごとにばらさないと全体が一斉に明滅する。
+        // 打ち上げ中の噴射粒はこれを持たないので瞬かない
+        twRate: kiku ? 0 : TWINKLE_RATE + Math.random()*TWINKLE_RATE_RAND,
+        twPhase: Math.random()*Math.PI*2
       });
     }
     if(heightM > bestHeightM){
@@ -1084,6 +1099,7 @@
         p.vx *= drag;
         p.vy *= drag;
         p.vy += burstGravity*dt;
+        if(p.twRate) p.twPhase += p.twRate*dt;
         // 尾は一定間隔で記録する。フレームレートで尾の長さが変わらない
         if(p.tail){
           p.tailT += dt;
@@ -1432,10 +1448,21 @@
   function drawGlowParticles(list){
     ctx.save();
     for(const p of list){
-      const alpha = Math.max(0, p.life / p.maxLife);
+      let alpha = Math.max(0, p.life / p.maxLife);
       if(alpha <= 0) continue;
-      const d = p.r * 4; // sprite is half core, half halo -> core radius lands on p.r
-      ctx.globalAlpha = alpha;
+      let d = p.r * 4; // sprite is half core, half halo -> core radius lands on p.r
+      if(p.twRate){
+        const prog = 1 - alpha; // 0(出たて) → 1(消える)
+        const amt = clamp((prog - TWINKLE_START) / TWINKLE_FADE, 0, 1);
+        // sin をそのまま使うと均されて脈動になる。二乗して山を細く谷を長くすると
+        // 「たまに強く光る」形になり、キラキラとして読める
+        let f = 0.5 + 0.5*Math.sin(p.twPhase);
+        f *= f;
+        const k = 1 + amt*(TWINKLE_MIN + (TWINKLE_PEAK-TWINKLE_MIN)*f - 1);
+        alpha *= k;
+        d *= clamp(0.84 + 0.22*k, 0.84, 1.3); // 光った瞬間だけ粒が膨らむ
+      }
+      ctx.globalAlpha = Math.min(1, alpha);
       ctx.drawImage(glowSprite(p.color), p.x - d/2, p.y - d/2, d, d);
     }
     ctx.restore();
