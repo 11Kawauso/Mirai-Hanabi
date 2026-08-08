@@ -7,7 +7,7 @@
   const PLAY_LEFT = 26, PLAY_RIGHT = GAME_W - 26; // side walls: hit them and it's over
   const LAUNCH_Y = GAME_H - 54; // cannon mouth height
   const LAUNCH_DURATION = 0.85;
-  const VERTICAL_RANGE = 64; // small up/down wiggle room around the usual flight line
+  const VERTICAL_RANGE = 100; // up/down wiggle room around the usual flight line
   const MOVE_SPEED_X = 260;
   const MOVE_SPEED_Y = 130;
   const CANNON_TOP_OFFSET = 74; // muzzle rim sits this far above the cannon's base line
@@ -539,6 +539,8 @@
   let sparkleTimer = 0;    // emitter for the finale skin's spark trail
   let cumuloTimer = 0;     // until the next thunderhead
   let cumuloFog = 0;       // 0..1 eased whiteout while inside one
+  // 上下の限界に張り付いているときだけ出す赤い線の濃さ。0..1
+  let limitTopFade = 0, limitBotFade = 0;
   let currentZoom = 1, zoomTarget = 1;
   let boost = 0; // 1 right after firing, eased to 0 over BOOST_DURATION
   let windSpeed = 0;   // signed m/s, negative = left
@@ -652,6 +654,7 @@
     wallPending = false;
     cumuloTimer = 12 + Math.random()*18; // first one lands a while after 10,000m
     cumuloFog = 0;
+    limitTopFade = limitBotFade = 0;
     currentZoom = 1;
     zoomTarget = 1;
     obstacles = [];
@@ -1125,6 +1128,16 @@
         endToResult();
       }
     }
+
+    // 上下の端に当たっているか。飛んでいる間だけ点灯し、離れると消える。
+    // 出るのは速く、消えるのはゆっくり。触れた瞬間を見逃さないため
+    let topHit = 0, botHit = 0;
+    if(state === 'playing'){
+      if(player.y <= PLAYER_Y - VERTICAL_RANGE + 0.5) topHit = 1;
+      if(player.y >= PLAYER_Y + VERTICAL_RANGE - 0.5) botHit = 1;
+    }
+    limitTopFade += (topHit - limitTopFade) * Math.min(1, dt*(topHit ? 18 : 5));
+    limitBotFade += (botHit - limitBotFade) * Math.min(1, dt*(botHit ? 18 : 5));
   }
 
   function drawSky(){
@@ -1498,6 +1511,28 @@
     ctx.restore();
   }
 
+  // 上下の限界線。押し続けている間だけ薄く出て、そこが端だと伝える。
+  // 壁と同じピンクだと「当たると死ぬ」に見えるので、赤で別物として描く
+  function drawLimitLines(){
+    const draw = (y, a) => {
+      if(a <= 0.004) return;
+      ctx.save();
+      // 中央が濃く、左右の端に向かって消える。画面を横断する枠には見せない
+      const g = ctx.createLinearGradient(PLAY_LEFT, 0, PLAY_RIGHT, 0);
+      g.addColorStop(0,    'rgba(255,60,80,0)');
+      g.addColorStop(0.5,  'rgba(255,60,80,0.5)');
+      g.addColorStop(1,    'rgba(255,60,80,0)');
+      ctx.globalAlpha = a;
+      ctx.fillStyle = g;
+      ctx.fillRect(PLAY_LEFT, y-1, PLAY_RIGHT-PLAY_LEFT, 2);
+      ctx.globalAlpha = a*0.35; // ごく薄い滲み
+      ctx.fillRect(PLAY_LEFT, y-4, PLAY_RIGHT-PLAY_LEFT, 8);
+      ctx.restore();
+    };
+    draw(PLAYER_Y - VERTICAL_RANGE, limitTopFade);
+    draw(PLAYER_Y + VERTICAL_RANGE, limitBotFade);
+  }
+
   function drawMuzzleParticles(){ drawGlowParticles(muzzleParticles); }
   function drawParticles(){
     drawBurstTails(particles); // 尾が先。頭の輝きを尾で潰さない
@@ -1614,6 +1649,7 @@
       ctx.scale(currentZoom, currentZoom);
       ctx.translate(-cx, -cy);
     }
+    drawLimitLines(); // 自機の下。線が玉を隠さない
     drawPlayer();
     drawParticles();
     drawMuzzleParticles();
