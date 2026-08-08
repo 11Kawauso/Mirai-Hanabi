@@ -419,8 +419,12 @@
         drag:0.62,      // 既定 1.35。小さいほど遠くまで伸びてから沈む
         hold:6.0,       // 爆発を見せている秒数。既定 2.5
         life:5.0, lifeSpan:1.6,
-        // 44 × TAIL_STEP = 2.2秒ぶんの軌跡。中心から外周まで一本に繋がって見える
-        trail:44,
+        // 140 × TAIL_STEP = 7.0秒ぶん。星の寿命(最大6.6秒)より長いので軌跡が
+        // 一度も切り捨てられない。開いた瞬間の中心から、垂れ切った先端までが
+        // ずっと一本で残る。巻き取り式だと中心が空き、落下の線も消えていた
+        trail:140,
+        // 芯入りの二重構造。外殻の内側にもう一枚、速度を落とした花を作る
+        coreRatio:0.35, coreSpeed:0.45,
         pistilRatio:0.1, // 芯で光る色玉の割合
         pistil:['#ff69c0','#7dff9e','#b98bff','#ffffff']
       },
@@ -839,7 +843,7 @@
     if(shapeFn) count = Math.max(110, count);
     // 菊は花びらの本数で見える。低い高度で散っても形が出るよう下限を置き、
     // 一本ずつ尾を引く分だけ描画が重いので上限も締める
-    if(kiku) count = clamp(count, 320, 560);
+    if(kiku) count = clamp(count, 420, 640);
     const push = 0.6 + scale*0.5;
     // With drag, a spark coasts to v0/burstDrag - so the fastest spark tells us
     // how wide the flower opens, and gravity sags it further than that. The
@@ -848,9 +852,14 @@
     zoomTarget = clamp((kiku ? kiku.fit : BURST_FIT) / reach, BURST_ZOOM_MIN, 1);
 
     const pistilCount = kiku ? Math.round(count * kiku.pistilRatio) : 0;
+    // 芯入りの内側の花。外殻と同じ本数比で撒くと外が薄くなるので割合で切る
+    const coreCount = kiku ? Math.round(count * kiku.coreRatio) : 0;
 
     for(let i=0;i<count;i++){
       let vx, vy;
+      // 芯で光る色玉 → 内側の花 → 外殻、の順に割り当てる
+      const isPistil = i < pistilCount;
+      const isCore = !isPistil && i < pistilCount + coreCount;
       if(shapeFn){
         // walk the outline in order so the figure actually forms, with a little
         // jitter in position and speed so it reads as sparks, not a wireframe
@@ -860,11 +869,12 @@
       } else {
         const angle = Math.random()*Math.PI*2;
         // 菊は花びらが同じ長さで揃うほど本物らしい。散らばりを抑えて外周を作る
-        const speed = (kiku ? (150 + Math.random()*70) : (70 + Math.random()*180)) * push;
+        let speed = (kiku ? (150 + Math.random()*70) : (70 + Math.random()*180)) * push;
+        // 内側の花は速度を落として、外殻の内側にもう一枚ぶんの層を作る
+        if(isCore) speed *= kiku.coreSpeed;
         vx = Math.cos(angle)*speed; vy = Math.sin(angle)*speed;
       }
-      // 芯で光る色玉。花びらより内側で止まり、尾を引かないので粒として際立つ
-      const isPistil = i < pistilCount;
+      // 花びらより内側で止まり、尾を引かないので粒として際立つ
       if(isPistil){
         const a = Math.random()*Math.PI*2;
         const s = (30 + Math.random()*45) * push;
@@ -1535,7 +1545,9 @@
       if(!t || t.length < 4) continue;
       const alpha = Math.max(0, p.life / p.maxLife);
       if(alpha <= 0) continue;
-      ctx.globalAlpha = alpha * 0.62;
+      // 垂れ下がるのは寿命の後半なので、頭と同じ速さで薄くすると
+      // いちばん見せたい落下の線が消えてしまう。尾だけ暮れ方を緩める
+      ctx.globalAlpha = Math.pow(alpha, 0.6) * 0.72;
       ctx.strokeStyle = p.color;
       // 写真の尾は細い。粒が大きく育っても線は太らせない
       ctx.lineWidth = clamp(p.r * 0.42, 0.7, 4.5);
