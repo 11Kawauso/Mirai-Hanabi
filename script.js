@@ -1514,7 +1514,8 @@
   // 上下の限界線。押し続けている間だけ薄く出て、そこが端だと伝える。
   // 壁と同じピンクだと「当たると死ぬ」に見えるので、赤で別物として描く
   function drawLimitLines(){
-    const draw = (y, a) => {
+    // dir は線から見た外側。-1 = 上の線、+1 = 下の線
+    const draw = (y, a, dir) => {
       if(a <= 0.004) return;
       ctx.save();
       // 中央が濃く、左右の端に向かって消える。画面を横断する枠には見せない
@@ -1522,15 +1523,19 @@
       g.addColorStop(0,    'rgba(255,60,80,0)');
       g.addColorStop(0.5,  'rgba(255,60,80,0.5)');
       g.addColorStop(1,    'rgba(255,60,80,0)');
+      const w = PLAY_RIGHT - PLAY_LEFT;
       ctx.globalAlpha = a;
       ctx.fillStyle = g;
-      ctx.fillRect(PLAY_LEFT, y-1, PLAY_RIGHT-PLAY_LEFT, 2);
-      ctx.globalAlpha = a*0.35; // ごく薄い滲み
-      ctx.fillRect(PLAY_LEFT, y-4, PLAY_RIGHT-PLAY_LEFT, 8);
+      ctx.fillRect(PLAY_LEFT, y-1, w, 2);
+      // 滲みは外側だけに伸ばす。内側に広げると玉にかぶる
+      ctx.globalAlpha = a*0.35;
+      ctx.fillRect(PLAY_LEFT, dir < 0 ? y-7 : y-1, w, 8);
       ctx.restore();
     };
-    draw(PLAYER_Y - VERTICAL_RANGE, limitTopFade);
-    draw(PLAYER_Y + VERTICAL_RANGE, limitBotFade);
+    // 玉の中心ではなく、玉の上端／下端に接する位置へ。+1 は線の太さの半分
+    const off = player.r + 1;
+    draw(PLAYER_Y - VERTICAL_RANGE - off, limitTopFade, -1);
+    draw(PLAYER_Y + VERTICAL_RANGE + off, limitBotFade, +1);
   }
 
   function drawMuzzleParticles(){ drawGlowParticles(muzzleParticles); }
