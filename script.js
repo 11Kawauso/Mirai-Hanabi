@@ -71,6 +71,8 @@
   const CUMULO_FADE = 110;       // px of soft edge entering and leaving
   const CUMULO_MAX_ALPHA = 0.52; // screen wash; the cloud body adds ~0.28 on top
 
+  // 尾に座標を刻む間隔(秒)。粗いほど区間は減るが、trail×これが尾の「長さ(秒)」
+  const TAIL_STEP = 0.05;
   const BURST_SCALE_CAP = 7.5, BURST_SCALE_DIV = 4400; // spread grows to ~28,600m
   const BURST_COUNT_CAP = 300, BURST_COUNT_DIV = 105;  // density grows to ~30,000m
 
@@ -352,10 +354,26 @@
 
     // The real thing bursts at roughly 600m over Nagaoka, so it unlocks there.
     // It is the festival's headline shell, so it should be easy to reach.
+    // kiku: the only shell that opens into a chrysanthemum - it hangs far wider
+    // than the rest, every spark drags a streamer, and the whole flower sinks
+    // instead of scattering. See triggerExplosion for what each field drives.
     { id:'shakudama', name:'正三尺玉', unlock:600,
       core:'#fff3cf', glow:'#ffb14a',
       trailFrom:'rgba(255,177,74,0.6)', trailTo:'rgba(255,90,20,0)',
-      palette:['#ffd23f','#ffb14a','#ff8a3d','#fff3cf','#ffe08a','#ff6b2c'], burst:1.5 },
+      // 写真の正三尺玉に寄せた、白寄りの淡い金。彩度を上げすぎると尾が濁る
+      palette:['#ffd9a0','#ffc978','#ffb14a','#fff3cf','#ffe08a','#ffcf9a'],
+      kiku:{
+        fit:265,        // 画面に収める半径。他は 200 なので一回り大きく映る
+        gravity:38,     // 既定 110。垂れ落ちる速さ
+        drag:0.7,       // 既定 1.35。小さいほど遠くまで伸びてから沈む
+        hold:4.2,       // 爆発を見せている秒数。既定 2.5
+        life:3.4, lifeSpan:1.3,
+        // 32 × TAIL_STEP = 1.6秒ぶんの軌跡。中心から外周まで一本に繋がって見える
+        trail:32,
+        pistilRatio:0.1, // 芯で光る色玉の割合
+        pistil:['#ff69c0','#7dff9e','#b98bff','#ffffff']
+      },
+      burst:1.8 },
 
     { id:'guren', name:'紅蓮', unlock:1500,
       core:'#fff0ec', glow:'#ff3b30',
@@ -490,6 +508,10 @@
   let particles = [];
   let stars = [];
   let elapsed = 0;
+  // 玉によって落ち方と見せる長さが変わるので、爆発ごとに差し替える
+  let burstGravity = BURST_GRAVITY;
+  let burstDrag = BURST_DRAG;
+  let explodeHold = 2.5;
 
   const player = { x: GAME_W/2, y: LAUNCH_Y, vx: 0, r: 9 };
   let keyLeft = false, keyRight = false;
@@ -746,16 +768,29 @@
     // big each one is - otherwise the late skins throw dinner plates
     const scale = Math.min(BURST_SCALE_CAP, 1 + heightM/BURST_SCALE_DIV) * (1 + (sk.burst-1)*0.35);
     const shapeFn = SHAPES[sk.shape];
+    const kiku = sk.kiku; // 菊物（正三尺玉）だけ、落ち方も見せ方も別仕立てにする
+    burstGravity = kiku ? kiku.gravity : BURST_GRAVITY;
+    burstDrag = kiku ? kiku.drag : BURST_DRAG;
+    explodeHold = kiku ? kiku.hold : 2.5;
+    const lifeMin = kiku ? kiku.life : 1.5;
+    const lifeSpan = kiku ? kiku.lifeSpan : 0.9;
+    const maxLife = lifeMin + lifeSpan;
+
     let count = Math.min(BURST_COUNT_CAP, 28 + heightM/BURST_COUNT_DIV) * sk.burst;
     // a ball still reads with a handful of sparks; a heart does not, so shaped
     // shells get a floor to stay legible even on a low, early death
     if(shapeFn) count = Math.max(110, count);
+    // 菊は花びらの本数で見える。低い高度で散っても形が出るよう下限を置き、
+    // 一本ずつ尾を引く分だけ描画が重いので上限も締める
+    if(kiku) count = clamp(count, 200, 360);
     const push = 0.6 + scale*0.5;
-    // With drag, a spark coasts to v0/BURST_DRAG - so the fastest spark tells us
+    // With drag, a spark coasts to v0/burstDrag - so the fastest spark tells us
     // how wide the flower opens, and gravity sags it further than that. The
     // camera pulls back just enough to frame the result; small bursts need none.
-    const reach = ((shapeFn ? 215 : 250) * push + BURST_GRAVITY) / BURST_DRAG;
-    zoomTarget = clamp(BURST_FIT / reach, BURST_ZOOM_MIN, 1);
+    const reach = ((shapeFn ? 215 : 250) * push + burstGravity) / burstDrag;
+    zoomTarget = clamp((kiku ? kiku.fit : BURST_FIT) / reach, BURST_ZOOM_MIN, 1);
+
+    const pistilCount = kiku ? Math.round(count * kiku.pistilRatio) : 0;
 
     for(let i=0;i<count;i++){
       let vx, vy;
@@ -767,16 +802,30 @@
         vx = p[0]*speed; vy = p[1]*speed;
       } else {
         const angle = Math.random()*Math.PI*2;
-        const speed = (70 + Math.random()*180) * push;
+        // 菊は花びらが同じ長さで揃うほど本物らしい。散らばりを抑えて外周を作る
+        const speed = (kiku ? (150 + Math.random()*70) : (70 + Math.random()*180)) * push;
         vx = Math.cos(angle)*speed; vy = Math.sin(angle)*speed;
+      }
+      // 芯で光る色玉。花びらより内側で止まり、尾を引かないので粒として際立つ
+      const isPistil = i < pistilCount;
+      if(isPistil){
+        const a = Math.random()*Math.PI*2;
+        const s = (30 + Math.random()*45) * push;
+        vx = Math.cos(a)*s; vy = Math.sin(a)*s;
       }
       particles.push({
         x: player.x, y: player.y,
         vx, vy,
-        r: Math.min(34, (2 + Math.random()*4) * scale),
-        life: 1.5 + Math.random()*0.9,
-        maxLife: 2.4,
-        color: sk.palette[Math.floor(Math.random()*sk.palette.length)]
+        r: Math.min(34, (2 + Math.random()*4) * scale * (isPistil ? 1.25 : 1)),
+        life: lifeMin + Math.random()*lifeSpan,
+        maxLife,
+        color: isPistil
+          ? kiku.pistil[Math.floor(Math.random()*kiku.pistil.length)]
+          : sk.palette[Math.floor(Math.random()*sk.palette.length)],
+        // 尾は座標を x,y の平坦な配列で持つ。粒ごとに配列を作り直さない
+        tail: (kiku && !isPistil) ? [] : null,
+        tailMax: kiku ? kiku.trail : 0,
+        tailT: 0
       });
     }
     if(heightM > bestHeightM){
@@ -1029,18 +1078,27 @@
       // eased slowly enough that you watch the camera pull back, not blink and miss it
       currentZoom += (zoomTarget - currentZoom) * Math.min(1, dt*3.2);
       explodeTimer += dt;
-      const drag = Math.exp(-BURST_DRAG*dt); // frame-rate independent decay
+      const drag = Math.exp(-burstDrag*dt); // frame-rate independent decay
       for(let i=particles.length-1;i>=0;i--){
         const p = particles[i];
         p.vx *= drag;
         p.vy *= drag;
-        p.vy += BURST_GRAVITY*dt;
+        p.vy += burstGravity*dt;
+        // 尾は一定間隔で記録する。フレームレートで尾の長さが変わらない
+        if(p.tail){
+          p.tailT += dt;
+          if(p.tailT >= TAIL_STEP){
+            p.tailT = 0;
+            p.tail.push(p.x, p.y);
+            if(p.tail.length > p.tailMax*2) p.tail.splice(0, 2);
+          }
+        }
         p.x += p.vx*dt;
         p.y += p.vy*dt;
         p.life -= dt;
         if(p.life <= 0) particles.splice(i,1);
       }
-      if(explodeTimer > 2.5 || particles.length === 0){
+      if(explodeTimer > explodeHold || particles.length === 0){
         explodeTimer = 0;
         endToResult();
       }
@@ -1383,8 +1441,35 @@
     ctx.restore();
   }
 
+  // 菊物の尾。粒ごとに一本のポリラインを引く。区間ごとに太さを変えると
+  // stroke 回数が粒数×区間数になって重いので、一粒一本に留めている
+  function drawBurstTails(list){
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for(const p of list){
+      const t = p.tail;
+      if(!t || t.length < 4) continue;
+      const alpha = Math.max(0, p.life / p.maxLife);
+      if(alpha <= 0) continue;
+      ctx.globalAlpha = alpha * 0.62;
+      ctx.strokeStyle = p.color;
+      // 写真の尾は細い。粒が大きく育っても線は太らせない
+      ctx.lineWidth = clamp(p.r * 0.42, 0.7, 4.5);
+      ctx.beginPath();
+      ctx.moveTo(t[0], t[1]);
+      for(let i=2;i<t.length;i+=2) ctx.lineTo(t[i], t[i+1]);
+      ctx.lineTo(p.x, p.y); // 記録済みの末尾から今の位置までを繋ぐ
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawMuzzleParticles(){ drawGlowParticles(muzzleParticles); }
-  function drawParticles(){ drawGlowParticles(particles); }
+  function drawParticles(){
+    drawBurstTails(particles); // 尾が先。頭の輝きを尾で潰さない
+    drawGlowParticles(particles);
+  }
 
   function drawWindGauge(){
     if(windVisible <= 0.01) return;
