@@ -1586,11 +1586,18 @@
     const speed = Math.abs(windSpeed);
     const calm = speed < 0.15;
     const strength = Math.min(1, speed / WIND_VIS_MAX);
-    const cx = GAME_W/2, cy = GAME_H - 52;
     const w = 168, h = 44;
+    // 中身は固定 px で組んであるので、拡大は変換行列で一括して掛ける。
+    // 文字・線幅・矢印の比率が崩れないし、数値を個別に直す必要もない
+    const S = 1.3;
+    // 下端の余白は拡大前と同じにする。大きくした分だけ中心を持ち上げる
+    const cx = GAME_W/2, cy = GAME_H - 52 - (h*(S-1))/2;
 
     ctx.save();
     ctx.globalAlpha = windVisible;
+    ctx.translate(cx, cy);
+    ctx.scale(S, S);
+    ctx.translate(-cx, -cy);
 
     ctx.fillStyle = 'rgba(5,4,15,0.6)';
     roundRect(cx-w/2, cy-h/2, w, h, 22);
