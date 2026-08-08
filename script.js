@@ -753,7 +753,10 @@
   }
 
   function spawnCloudWall(){
-    const gapW = Math.max(88, 150 - heightM/40);
+    // 抜ける隙間の幅。高度とともに狭まるが、下限は花火の直径(18px)に対して
+    // 余裕を残す。分母を大きくしたのは、1px あたりのメートルを 6→5 にした分だけ
+    // 実時間での狭まり方が速くなっていたため
+    const gapW = Math.max(120, 190 - heightM/50);
     const gapX = PLAY_LEFT + Math.random()*((PLAY_RIGHT-PLAY_LEFT) - gapW);
     const h = 46;
     // Both slabs always exist, even at zero width, so that a gap which starts
