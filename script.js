@@ -415,16 +415,16 @@
       palette:['#ffd9a0','#ffc978','#ffb14a','#fff3cf','#ffe08a','#ffcf9a'],
       kiku:{
         fit:265,        // 画面に収める半径。他は 200 なので一回り大きく映る
-        gravity:38,     // 既定 110。垂れ落ちる速さ
-        drag:0.7,       // 既定 1.35。小さいほど遠くまで伸びてから沈む
-        hold:4.2,       // 爆発を見せている秒数。既定 2.5
-        life:3.4, lifeSpan:1.3,
-        // 32 × TAIL_STEP = 1.6秒ぶんの軌跡。中心から外周まで一本に繋がって見える
-        trail:32,
+        gravity:26,     // 既定 110。垂れ落ちる速さ
+        drag:0.62,      // 既定 1.35。小さいほど遠くまで伸びてから沈む
+        hold:6.0,       // 爆発を見せている秒数。既定 2.5
+        life:5.0, lifeSpan:1.6,
+        // 44 × TAIL_STEP = 2.2秒ぶんの軌跡。中心から外周まで一本に繋がって見える
+        trail:44,
         pistilRatio:0.1, // 芯で光る色玉の割合
         pistil:['#ff69c0','#7dff9e','#b98bff','#ffffff']
       },
-      burst:1.8 },
+      burst:2.4 },
 
     { id:'guren', name:'紅蓮', unlock:1500,
       core:'#fff0ec', glow:'#ff3b30',
@@ -839,7 +839,7 @@
     if(shapeFn) count = Math.max(110, count);
     // 菊は花びらの本数で見える。低い高度で散っても形が出るよう下限を置き、
     // 一本ずつ尾を引く分だけ描画が重いので上限も締める
-    if(kiku) count = clamp(count, 200, 360);
+    if(kiku) count = clamp(count, 320, 560);
     const push = 0.6 + scale*0.5;
     // With drag, a spark coasts to v0/burstDrag - so the fastest spark tells us
     // how wide the flower opens, and gravity sags it further than that. The
