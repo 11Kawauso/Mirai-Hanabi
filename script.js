@@ -84,6 +84,7 @@
 
   // 尾に座標を刻む間隔(秒)。粗いほど区間は減るが、trail×これが尾の「長さ(秒)」
   const TAIL_STEP = 0.05;
+  let burstTailStep = TAIL_STEP; // 玉ごとに刻み幅を変える
 
   // 爆発後のキラキラ。開いた瞬間は素直に光らせ、そこから瞬きを強めていく。
   // 菊物(正三尺玉)は尾で見せる玉なので、こちらは適用しない。
@@ -426,10 +427,10 @@
         gravity:26,     // 既定 110。垂れ落ちる速さ
         drag:0.62,      // 既定 1.35。小さいほど遠くまで伸びてから沈む
         life:5.0, lifeSpan:1.6,
-        // 140 × TAIL_STEP = 7.0秒ぶん。星の寿命(最大6.6秒)より長いので軌跡が
+        // 88 × 0.08 = 7.04秒ぶん。星の寿命(最大6.6秒)より長いので軌跡が
         // 一度も切り捨てられない。開いた瞬間の中心から、垂れ切った先端までが
         // ずっと一本で残る。巻き取り式だと中心が空き、落下の線も消えていた
-        trail:140,
+        trail:88, tailStep:0.08,
         // 角度の散らし幅。1.0 で等分割の枠いっぱい、0 で完全な等間隔。
         // 大きくすると隣同士が重なって隙間が空くので、控えめに散らす
         spread:0.7,
@@ -851,6 +852,7 @@
     const kiku = sk.kiku; // 菊物（正三尺玉）だけ、落ち方も見せ方も別仕立てにする
     burstGravity = kiku ? kiku.gravity : BURST_GRAVITY;
     burstDrag = kiku ? kiku.drag : BURST_DRAG;
+    burstTailStep = kiku ? kiku.tailStep : TAIL_STEP;
     const lifeMin = kiku ? kiku.life : 1.5;
     const lifeSpan = kiku ? kiku.lifeSpan : 0.9;
     const maxLife = lifeMin + lifeSpan;
@@ -917,8 +919,9 @@
           ? kiku.pistil[Math.floor(Math.random()*kiku.pistil.length)]
           : sk.palette[Math.floor(Math.random()*sk.palette.length)],
         // 尾は座標を x,y の平坦な配列で持つ。粒ごとに配列を作り直さない
-        tail: (kiku && !isPistil) ? [] : null,
-        tailMax: kiku ? kiku.trail : 0,
+        // 伸びる配列は確保のたびに作り直されて GC を招く。長さを決めて一度だけ取る
+        tail: (kiku && !isPistil) ? new Float32Array(kiku.trail*2) : null,
+        tailN: 0,   // 書き込み済みの要素数
         tailT: 0,
         // 瞬きの速さと位相。粒ごとにばらさないと全体が一斉に明滅する。
         // 打ち上げ中の噴射粒はこれを持たないので瞬かない
@@ -1192,10 +1195,9 @@
         // 尾は一定間隔で記録する。フレームレートで尾の長さが変わらない
         if(p.tail){
           p.tailT += dt;
-          if(p.tailT >= TAIL_STEP){
+          if(p.tailT >= burstTailStep && p.tailN < p.tail.length){
             p.tailT = 0;
-            p.tail.push(p.x, p.y);
-            if(p.tail.length > p.tailMax*2) p.tail.splice(0, 2);
+            p.tail[p.tailN++] = p.x; p.tail[p.tailN++] = p.y;
           }
         }
         p.x += p.vx*dt;
@@ -1583,7 +1585,8 @@
     ctx.lineJoin = 'round';
     for(const p of list){
       const t = p.tail;
-      if(!t || t.length < 4) continue;
+      // 配列は最初から満杯の長さで持っているので、書き込み済みの数で見る
+      if(!t || p.tailN < 4) continue;
       const alpha = Math.max(0, p.life / p.maxLife);
       if(alpha <= 0) continue;
       // 垂れ下がるのは寿命の後半なので、頭と同じ速さで薄くすると
@@ -1594,7 +1597,7 @@
       ctx.lineWidth = clamp(p.r * 0.42, 0.7, 4.5);
       ctx.beginPath();
       ctx.moveTo(t[0], t[1]);
-      for(let i=2;i<t.length;i+=2) ctx.lineTo(t[i], t[i+1]);
+      for(let i=2;i<p.tailN;i+=2) ctx.lineTo(t[i], t[i+1]);
       ctx.lineTo(p.x, p.y); // 記録済みの末尾から今の位置までを繋ぐ
       ctx.stroke();
     }
