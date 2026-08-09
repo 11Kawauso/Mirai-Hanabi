@@ -74,6 +74,14 @@
   // 雲の本体がさらに 0.28 を重ねる
   const CUMULO_MAX_ALPHA = 0.7;
 
+  // 背景グリッドの地平線。低いうちは画面のかなり下にあり、登るにつれてせり上がる。
+  // 上がる区間を長く取っているのは、飛んでいる最中は動いていると気づかないくらい
+  // ゆっくりで、ふと見ると変わっている、という効き方にしたいため
+  const GRID_TOP_LOW = 0.78;   // 出はじめの位置（画面高に対する割合）
+  const GRID_TOP_HIGH = 0.35;  // 上がり切った位置
+  const GRID_RISE_FROM = 550;  // グリッドが見え始める高度
+  const GRID_RISE_TO = 6000;   // ここで上がり切る
+
   // 尾に座標を刻む間隔(秒)。粗いほど区間は減るが、trail×これが尾の「長さ(秒)」
   const TAIL_STEP = 0.05;
 
@@ -1259,7 +1267,9 @@
       const padY = (GAME_H/2) * (1/z - 1) + 40;
       const spacing = 34;
       const offset = (elapsed*40) % spacing;
-      const topY = GAME_H*0.35;
+      // 地平線をせり上げる。両端で滑らかに繋がるよう smoothstep で均す
+      const r = clamp((heightM - GRID_RISE_FROM) / (GRID_RISE_TO - GRID_RISE_FROM), 0, 1);
+      const topY = GAME_H * lerp(GRID_TOP_LOW, GRID_TOP_HIGH, r*r*(3 - 2*r));
 
       ctx.save();
       if(z !== 1){
