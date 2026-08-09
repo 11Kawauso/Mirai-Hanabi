@@ -417,7 +417,6 @@
         fit:265,        // 画面に収める半径。他は 200 なので一回り大きく映る
         gravity:26,     // 既定 110。垂れ落ちる速さ
         drag:0.62,      // 既定 1.35。小さいほど遠くまで伸びてから沈む
-        hold:6.0,       // 爆発を見せている秒数。既定 2.5
         life:5.0, lifeSpan:1.6,
         // 140 × TAIL_STEP = 7.0秒ぶん。星の寿命(最大6.6秒)より長いので軌跡が
         // 一度も切り捨てられない。開いた瞬間の中心から、垂れ切った先端までが
@@ -570,7 +569,15 @@
   // 玉によって落ち方と見せる長さが変わるので、爆発ごとに差し替える
   let burstGravity = BURST_GRAVITY;
   let burstDrag = BURST_DRAG;
-  let explodeHold = 2.5;
+  // 開花を見せてから結果画面を出すまでの秒数。粒の寿命とは無関係なので、
+  // 長く咲く玉でもここは伸ばさない（続きは結果画面の裏で咲く）
+  const RESULT_DELAY = 2.5;
+  // 花火が画面に出ているか。粒は爆発でしか作られず reset() で消えるので、
+  // 残っていること自体が「演出中」の印になる。state で判定すると、結果画面へ
+  // 移った瞬間にカメラが戻って花が原寸で飛び散ってしまう
+  // カメラが戻り切るまでを含める。粒が尽きた瞬間に false にすると、戻す途中の
+  // 縮んだ世界に変換が掛からなくなって一瞬跳ねる
+  const bursting = () => particles.length > 0 || currentZoom < 0.999;
 
   const player = { x: GAME_W/2, y: LAUNCH_Y, vx: 0, r: 9 };
   let keyLeft = false, keyRight = false;
@@ -836,7 +843,6 @@
     const kiku = sk.kiku; // 菊物（正三尺玉）だけ、落ち方も見せ方も別仕立てにする
     burstGravity = kiku ? kiku.gravity : BURST_GRAVITY;
     burstDrag = kiku ? kiku.drag : BURST_DRAG;
-    explodeHold = kiku ? kiku.hold : 2.5;
     const lifeMin = kiku ? kiku.life : 1.5;
     const lifeSpan = kiku ? kiku.lifeSpan : 0.9;
     const maxLife = lifeMin + lifeSpan;
@@ -1158,10 +1164,16 @@
       }
     }
 
-    if(state === 'exploding'){
-      // eased slowly enough that you watch the camera pull back, not blink and miss it
-      currentZoom += (zoomTarget - currentZoom) * Math.min(1, dt*3.2);
-      explodeTimer += dt;
+    // 最後の粒が消えたらカメラを戻す。引きっぱなしで変換だけ外すと、背景が
+    // その1フレームで原寸へ飛ぶ
+    if(!particles.length) zoomTarget = 1;
+    // eased slowly enough that you watch the camera pull back, not blink and miss it
+    currentZoom += (zoomTarget - currentZoom) * Math.min(1, dt*3.2);
+
+    // 花火は state と切り離して動かし続ける。結果画面を先に出しても、その裏で
+    // 花が開き切って垂れ落ちるまで演出が続く。正三尺玉のように長く咲く玉でも
+    // 記録の表示を待たされない
+    if(particles.length){
       const drag = Math.exp(-burstDrag*dt); // frame-rate independent decay
       for(let i=particles.length-1;i>=0;i--){
         const p = particles[i];
@@ -1183,7 +1195,13 @@
         p.life -= dt;
         if(p.life <= 0) particles.splice(i,1);
       }
-      if(explodeTimer > explodeHold || particles.length === 0){
+    }
+
+    if(state === 'exploding'){
+      explodeTimer += dt;
+      // 開花を見せたら結果へ移る。粒の寿命とは切り離してあるので、長く咲く玉は
+      // このあと結果画面の裏で咲き続ける
+      if(explodeTimer > RESULT_DELAY || particles.length === 0){
         explodeTimer = 0;
         endToResult();
       }
@@ -1233,7 +1251,7 @@
       // shrunken grid still reaches the frame edges instead of becoming a small
       // patch floating in the middle. The vanishing line is deliberately NOT
       // padded upward: sky belongs above it.
-      const z = (state === 'exploding') ? currentZoom : 1;
+      const z = bursting() ? currentZoom : 1;
       const cx = GAME_W/2, cy = GAME_H/2;
       // +40 of slack: without it the padding lands exactly on the frame edge and
       // a rounding error shows a sliver of bare sky there
@@ -1455,7 +1473,7 @@
   }
 
   function drawPlayer(){
-    if(state === 'exploding') return;
+    if(bursting()) return; // 爆発した殻は出さない
     const sk = skin();
     // the finale cycles its glow through the spectrum and wears a pulsing halo
     const grand = sk.fx === 'grand';
@@ -1696,7 +1714,7 @@
     // Sky and stars stay put: they're the far backdrop, and scaling them down
     // would just expose empty corners.
     ctx.save();
-    if(state === 'exploding'){
+    if(bursting()){
       const cx = GAME_W/2, cy = GAME_H/2;
       ctx.translate(cx, cy);
       ctx.scale(currentZoom, currentZoom);
@@ -1717,7 +1735,7 @@
     }
 
     ctx.save();
-    if(state === 'exploding'){
+    if(bursting()){
       const cx = GAME_W/2, cy = GAME_H/2;
       ctx.translate(cx, cy);
       ctx.scale(currentZoom, currentZoom);
