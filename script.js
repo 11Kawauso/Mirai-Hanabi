@@ -161,7 +161,7 @@
   const STORE_TRAIL  = 'mirai-hanabi.trail';   // 装備中のトレイル
 
   const PT_PER_M   = 100;   // 何メートルで 1pt か
-  const GACHA_COST = 30;    // 1回の値段 = 3,000m ぶん
+  const GACHA_COST = 50;    // 1回の値段 = 5,000m ぶん
   const PITY_MAX   = 25;    // これだけ外し続けたら次は目玉が確定で出る
 
   let gachaPt = Math.max(0, parseInt(load(STORE_PT, '0'), 10) || 0);
