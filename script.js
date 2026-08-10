@@ -1982,7 +1982,9 @@
     if(e.code === 'ArrowUp' || e.code === 'KeyW') moveUp = true;
     if(e.code === 'ArrowDown' || e.code === 'KeyS') moveDown = true;
     if(e.code === 'Space' || e.code === 'Enter'){
-      if(state === 'start' || state === 'result') reset();
+      // ボタンと同じ入口を通す。reset() を直接呼ぶと、選んだスキップ券が
+      // 消費も適用もされないまま地上から上がってしまう
+      if(state === 'start' || state === 'result') launch();
     }
   });
   window.addEventListener('keyup', (e) => {
@@ -2017,14 +2019,21 @@
       desc:'太く長い金の尾。飛んでいるあいだ、ずっと火の粉を落とし続けます。',
       colors:['#fff6d8','#ffe08a','#ffd23f','#ffb14a'] },
 
-    { id:'ticket:2000', kind:'ticket', rank:'R', weight:25, m:2000, name:'2000mスキップ券',
+    { id:'ticket:2000', kind:'ticket', rank:'R', weight:20, m:2000, name:'2000mスキップ券',
       desc:'2000m から打ち上げます。記録に載るのは、そこから自力で飛んだぶんだけです。',
       colors:['#7bdcff','#a5b4fc','#e8fbff','#5eead4'] },
 
-    { id:'ticket:1000', kind:'ticket', rank:'N', weight:67, m:1000, name:'1000mスキップ券',
+    { id:'ticket:1000', kind:'ticket', rank:'N', weight:30, m:1000, name:'1000mスキップ券',
       desc:'1000m から打ち上げます。記録に載るのは、そこから自力で飛んだぶんだけです。',
-      colors:['#dbe4f5','#ffffff','#b8c6de','#eef2ff'] }
+      colors:['#dbe4f5','#ffffff','#b8c6de','#eef2ff'] },
+
+    { id:'ticket:500', kind:'ticket', rank:'N', weight:42, m:500, name:'500mスキップ券',
+      desc:'500m から打ち上げます。記録に載るのは、そこから自力で飛んだぶんだけです。',
+      colors:['#c9d4e8','#eef2ff','#a8b6d0','#ffffff'] }
   ];
+
+  // 券の種類。ここに足せば手持ち欄とスタート高度の選択肢に自動で並ぶ
+  const TICKET_M = [500, 1000, 2000];
 
   const isPrize = (e) => e.kind !== 'ticket';
   const inPool  = (e) => !(isPrize(e) && has(e.id)); // 引き当て済みの目玉は出ない
@@ -2143,7 +2152,7 @@
       }));
     }
     stockTicket.textContent = '';
-    for(const m of [1000, 2000]){
+    for(const m of TICKET_M){
       const n = ticketCount(m);
       const el = document.createElement('span');
       el.className = 'stock-ticket' + (n ? '' : ' zero');
@@ -2374,7 +2383,7 @@
   let pendingSkip = 0; // 次の打ち上げで使う券。使った瞬間に 0 へ戻る
 
   function renderSkipPickers(){
-    const owns = [1000, 2000].filter(m => ticketCount(m) > 0);
+    const owns = TICKET_M.filter(m => ticketCount(m) > 0);
     if(pendingSkip && ticketCount(pendingSkip) <= 0) pendingSkip = 0;
     // 券を1枚も持っていないなら、選ぶものが無いので枠ごと隠す
     for(const b of skipBlocks) b.classList.toggle('hidden', owns.length === 0);
