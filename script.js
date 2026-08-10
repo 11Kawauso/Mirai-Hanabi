@@ -74,6 +74,24 @@
   // 雲の本体がさらに 0.28 を重ねる
   const CUMULO_MAX_ALPHA = 0.7;
 
+  // 雲の中に挟む、ところどころ濃いモヤ。一様に白いだけだと、入った瞬間の
+  // 「見えない」が500m続くだけで単調になる。薄いところで体勢を立て直し、
+  // 濃いところで耐える、という緩急を作るためのもの。
+  // 層は雲本体にも濃く描くので、近づいてくるのが（かすかに）見えて身構えられる
+  const CUMULO_VEILS = 3, CUMULO_VEILS_RAND = 2; // 一つの雲に挟む枚数
+  // 半分の厚み(px)。fog は dt*4 で追いかけるので、薄すぎる層は濃くなり切る前に
+  // 通り過ぎてしまう。速度上限(370px/s)でも 0.7 秒は掛かる厚みを下限にしてある
+  const CUMULO_VEIL_SPAN = 130, CUMULO_VEIL_SPAN_RAND = 120;
+  // fog(0..1) への上乗せ。CUMULO_MAX_ALPHA を掛けた値が実際の白さになる
+  // 層は厚いので fog はほぼ狙いどおりまで濃くなる。上限(CUMULO_VEIL_PEAK)に
+  // 届く値まで振ると全部の層が同じ濃さで頭打ちになり、「ところどころ」でなく
+  // 「ときどき真っ白」になってしまうので、上限の手前で止まる範囲にしてある。
+  // 白さにすると 0.756〜0.854（層の外は 0.7）
+  const CUMULO_VEIL_GAIN = 0.08, CUMULO_VEIL_GAIN_RAND = 0.14;
+  // fog の頭打ち。0.7 を掛けて 0.861 まで。ここを超えると障害物が
+  // 本当に見えなくなって、避けようがない事故になる
+  const CUMULO_VEIL_PEAK = 1.23;
+
   // 背景グリッドの地平線。低いうちは画面のかなり下にあり、登るにつれてせり上がる。
   // 上がる区間を長く取っているのは、飛んでいる最中は動いていると気づかないくらい
   // ゆっくりで、ふと見ると変わっている、という効き方にしたいため
@@ -956,7 +974,19 @@
     const lumps = [], base = [];
     for(let i=0;i<8;i++) lumps.push({ x: Math.random()*GAME_W, r: 42 + Math.random()*58 });
     for(let i=0;i<8;i++) base.push({ x: Math.random()*GAME_W, r: 46 + Math.random()*62 });
-    obstacles.push({ type:'cumulo', x:0, y:-h, w:GAME_W, h, lumps, base });
+
+    // 濃いモヤの層。等分割した枠の中で少しだけ散らす。位置を丸ごと乱数で
+    // 振ると隣同士が重なって一枚の厚い層になり、緩急が消えてしまう
+    const veils = [];
+    const n = CUMULO_VEILS + Math.floor(Math.random()*(CUMULO_VEILS_RAND+1));
+    for(let i=0;i<n;i++){
+      veils.push({
+        y: h * ((i + 0.35 + Math.random()*0.3) / n), // 雲の上端からの距離(px)
+        span: CUMULO_VEIL_SPAN + Math.random()*CUMULO_VEIL_SPAN_RAND,
+        gain: CUMULO_VEIL_GAIN + Math.random()*CUMULO_VEIL_GAIN_RAND
+      });
+    }
+    obstacles.push({ type:'cumulo', x:0, y:-h, w:GAME_W, h, lumps, base, veils });
   }
 
   function spawnCloudWall(){
@@ -1138,7 +1168,22 @@
       for(const o of obstacles){
         if(o.type !== 'cumulo') continue;
         const depth = Math.min(player.y - o.y, (o.y + o.h) - player.y);
-        if(depth > 0) fogTarget = Math.max(fogTarget, Math.min(1, depth / CUMULO_FADE));
+        if(depth <= 0) continue;
+        const edge = Math.min(1, depth / CUMULO_FADE);
+
+        // 通っている層の上乗せ。層は重ねずに一番濃いものを採る。足し合わせると
+        // 隣り合った層が偶然重なったときだけ極端に濃くなってしまう
+        let extra = 0;
+        const into = player.y - o.y; // 雲の上端からどれだけ入ったか
+        for(const v of o.veils){
+          const d = Math.abs(into - v.y);
+          if(d >= v.span) continue;
+          const t = 1 - d/v.span;
+          extra = Math.max(extra, v.gain * t*t*(3 - 2*t)); // 山なりに効かせて段差を消す
+        }
+        // 入口・出口のぼかしを掛けてから足す。雲に入った瞬間に層があっても、
+        // まずは薄いところから始まる
+        fogTarget = Math.max(fogTarget, edge * (1 + extra));
       }
     }
     cumuloFog += (fogTarget - cumuloFog) * Math.min(1, dt*4);
@@ -1617,6 +1662,20 @@
         g.addColorStop(1,   'rgba(238,244,255,0)');
         ctx.fillStyle = g;
         ctx.fillRect(0, o.y, GAME_W, o.h);
+
+        // 濃いモヤの層。画面全体の白飛ばしより手前で見えるので、
+        // 上から迫ってくる帯として読める。これが唯一の予告になる
+        for(const v of o.veils){
+          const top = o.y + v.y - v.span, span = v.span*2;
+          if(top > GAME_H || top + span < 0) continue;
+          const vg = ctx.createLinearGradient(0, top, 0, top + span);
+          vg.addColorStop(0,   'rgba(238,244,255,0)');
+          vg.addColorStop(0.5, `rgba(238,244,255,${(0.10 + v.gain).toFixed(3)})`);
+          vg.addColorStop(1,   'rgba(238,244,255,0)');
+          ctx.fillStyle = vg;
+          ctx.fillRect(0, top, GAME_W, span);
+        }
+
         ctx.globalAlpha = 0.32;
         ctx.fillStyle = 'rgba(244,248,255,0.85)';
         for(const l of o.base){ // leading face - this is the one you fly into
@@ -1927,7 +1986,8 @@
     // you lose the world, never your own position.
     if(cumuloFog > 0.002){
       ctx.save();
-      ctx.globalAlpha = cumuloFog * CUMULO_MAX_ALPHA;
+      // 濃いモヤの層で 1 を超えてくる。頭打ちにしないと真っ白になる
+      ctx.globalAlpha = Math.min(cumuloFog, CUMULO_VEIL_PEAK) * CUMULO_MAX_ALPHA;
       ctx.fillStyle = '#eef4ff';
       ctx.fillRect(0, 0, GAME_W, GAME_H);
       ctx.restore();
