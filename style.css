@@ -698,26 +698,38 @@ body.stick-mode .pad-ud{ display:none; }
 }
 
 /* ---- ランキング（解説パネルの鏡像） ------------------------------------- */
+/* パネル自体は動かさず、順位の一覧(#rank-list)だけをスクロールさせる。
+   縦積みの flex にして、見出し・名前欄・状態表示を上に、自分の順位を下に
+   固定し、余った高さを一覧に渡す */
 #ranking{
   display:none;
+  flex-direction:column;
   position:absolute;
   top:50%;
   transform:translateY(-50%);
   left:calc(50% + var(--board-w)/2 + var(--guide-gap));
   width:var(--guide-w);
   max-height:96dvh;
-  overflow-y:auto;
-  overscroll-behavior:contain;
+  overflow:hidden;
   padding-left:14px;
   font-size:12px;
   color:rgba(238,242,255,0.72);
 }
-@media (min-width:1200px){ #ranking{ display:block; } }
+@media (min-width:1200px){ #ranking{ display:flex; } }
 @media (min-width:1400px){ #ranking{ font-size:12.5px; } }
 
-#ranking::-webkit-scrollbar{ width:6px; }
-#ranking::-webkit-scrollbar-track{ background:transparent; }
-#ranking::-webkit-scrollbar-thumb{ background:rgba(123,47,247,0.55); border-radius:3px; }
+/* 一覧以外は縮ませない。既定の flex:0 1 auto のままだと、行が増えたときに
+   名前欄のほうが潰れていく */
+.r-title, .r-name, .r-status, .r-me{ flex:0 0 auto; }
+#rank-list{
+  flex:1 1 auto;
+  min-height:0; /* これが無いと flex 項目は中身の高さより縮まず、はみ出す */
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+#rank-list::-webkit-scrollbar{ width:6px; }
+#rank-list::-webkit-scrollbar-track{ background:transparent; }
+#rank-list::-webkit-scrollbar-thumb{ background:rgba(123,47,247,0.55); border-radius:3px; }
 
 .r-title{
   margin:0 0 14px;
@@ -808,6 +820,9 @@ body.stick-mode .pad-ud{ display:none; }
   padding-top:12px;
   border-top:1px solid rgba(238,242,255,0.12);
 }
+/* 上位に載っているときは中身が空になる。一覧の下に区切り線だけが
+   浮いて残らないよう畳む */
+.r-me:empty{ display:none; }
 .r-me .r-list li{ background:rgba(255,47,176,0.14); box-shadow:inset 0 0 0 1px rgba(255,47,176,0.35); }
 .r-empty{
   padding:10px 2px;
@@ -955,7 +970,10 @@ body.playing #swipe-hint{ visibility:hidden; }
     transition:transform .28s ease, visibility .28s;
   }
   #guide{ left:0;   transform:translateX(-100%); border-right:1px solid rgba(41,241,255,0.22); }
-  #ranking{ right:0; transform:translateX(100%);  border-left:1px solid rgba(255,47,176,0.22); }
+  /* 引き出しでも一覧だけが動く。display は上の一括指定を打ち消して flex に戻す
+     （#guide は通し読みするものなので block のまま全体をスクロールさせる） */
+  #ranking{ right:0; transform:translateX(100%);  border-left:1px solid rgba(255,47,176,0.22);
+            display:flex; }
 
   body.panel-open #scrim{ display:block; opacity:1; }
   body.panel-guide   #guide,
