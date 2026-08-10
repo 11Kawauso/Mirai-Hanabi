@@ -706,7 +706,9 @@
   let state = 'start'; // start | playing | exploding | result
   let heightM = 0;
   let runStartM = 0;   // スキップ券で飛ばした分。記録はここからの差で数える
-  let runTime = 0;     // 打ち上げからの実時間。elapsed と違い券で進まない
+  // 砲口の蹴り(boost)だけを進める時計。難易度の elapsed とは別で、
+  // 券で空中から始めたときは最初から使い切った状態にして蹴りを消す
+  let boostTime = 0;
   let scrollSpeed = 0;
   let spawnTimer = 0;
   let obstacles = [];
@@ -853,7 +855,9 @@
 
   function reset(startM){
     const from = Math.max(0, startM || 0);
-    state = 'launching';
+    // 券で飛んだ先は空の途中で、そこに砲台は無い。砲口から上がる芝居を
+    // 挟まず、いきなり飛行中から始める
+    state = from > 0 ? 'playing' : 'launching';
     // 引き出しを開いたまま打ち上がると盤が見えないので必ず畳む
     setPanel(null);
     closeGacha();
@@ -875,14 +879,16 @@
     obstacles = [];
     particles = [];
     muzzleParticles = [];
-    // 難易度の時計は開始高度ぶん進めておく。打ち上げの演出だけは
-    // 何度目でも同じに見せたいので、boost は runTime という別の時計で回す
+    // 難易度の時計は開始高度ぶん進めておく。これで風・障害物の密度・
+    // スクロール速度が「そこまで自力で飛んできた」状態と揃う
     elapsed = timeForHeight(from);
-    runTime = 0;
+    // 砲口の蹴りは地上から上げたときだけ。券のときは使い切った状態にして、
+    // 最初からその高度の巡航速度で流れ始める
+    boostTime = from > 0 ? BOOST_DURATION : 0;
+    boost = 0;
     player.x = GAME_W/2;
-    player.y = LAUNCH_Y;
+    player.y = from > 0 ? PLAYER_Y : LAUNCH_Y;
     player.vx = 0;
-    boost = 1;
     windSpeed = 0; // every run starts calm, then builds once the gauge appears
     windTarget = 0;
     windTimer = 0;
@@ -894,7 +900,7 @@
     hudHeight.textContent = Math.floor(from) + 'm'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
     resultScreen.classList.add('hidden');
-    spawnMuzzleFlash();
+    if(from === 0) spawnMuzzleFlash(); // 空中スタートに砲口の火花は出ない
   }
 
   function spawnMuzzleFlash(){
@@ -1099,11 +1105,10 @@
         twPhase: Math.random()*Math.PI*2
       });
     }
-    // 記録は「自力で飛んだ分」。券で貰った高度は差し引くので、ランキングは
-    // 券を持っている人と持っていない人で同じ土俵のままになる
-    const scoreM = Math.max(0, heightM - runStartM);
-    if(scoreM > bestHeightM){
-      bestHeightM = scoreM;
+    // 記録は到達高度そのもの。スキップ券で飛ばした分もそのまま含める。
+    // 自力で飛んだ距離（heightM - runStartM）はポイントの計算にだけ使う
+    if(heightM > bestHeightM){
+      bestHeightM = heightM;
       save(STORE_BEST, String(Math.floor(bestHeightM)));
     }
   }
@@ -1112,23 +1117,26 @@
     state = 'result';
     document.body.classList.remove('playing'); // スワイプを解禁する
     stickRelease(); // 倒したまま終わってもノブは中央へ戻す
-    const scoreM = Math.max(0, heightM - runStartM);
+    // 自力で飛んだ距離。記録には使わず、ポイントの計算にだけ使う
+    const flownM = Math.max(0, heightM - runStartM);
     resultHeight.textContent = Math.floor(heightM) + 'm';
     resultBest.textContent = '自己ベスト ' + Math.floor(bestHeightM) + 'm';
     hudBest.textContent = Math.floor(bestHeightM) + 'm';
 
-    // 券を使った回は、大きい数字と記録が食い違う。黙って違う値を送ると
-    // バグに見えるので、内訳をその場で見せる
+    // 券を使った回は、記録（到達高度）とポイントの元になる距離が食い違う。
+    // 黙って違う値で計算すると数が合わないように見えるので、内訳を出す
     if(runStartM > 0){
       resultSplit.textContent =
-        `スタート ${Math.floor(runStartM)}m ／ 記録は自力の ${Math.floor(scoreM)}m`;
+        `スタート ${Math.floor(runStartM)}m ／ 自力で ${Math.floor(flownM)}m`;
       resultSplit.classList.remove('hidden');
     } else {
       resultSplit.classList.add('hidden');
     }
 
-    // ポイントは毎回の記録から。自己ベストではないので、失敗した回でも貯まる
-    const gained = Math.floor(scoreM / PT_PER_M);
+    // ポイントは自力で飛んだぶんだけ。券で貰った高度は数えないので、
+    // 券を回し続けても問屋のポイントは増えない。
+    // 自己ベストではなく毎回の飛距離から出すので、失敗した回でも貯まる
+    const gained = Math.floor(flownM / PT_PER_M);
     if(gained > 0){
       addPoints(gained);
       // 自己ベストと同じ行に並ぶので短く。総額は真下の問屋ボタンにも出ている
@@ -1215,8 +1223,8 @@
     // Without this the first 0.85s is a dead-still screen and the shot reads as
     // floating rather than being flung out of a cannon.
     if(state === 'launching' || state === 'playing'){
-      runTime += dt;
-      boost = Math.pow(1 - Math.min(1, runTime/BOOST_DURATION), 2); // ease-out
+      boostTime += dt;
+      boost = Math.pow(1 - Math.min(1, boostTime/BOOST_DURATION), 2); // ease-out
       // speed increases very gradually with time survived, not with height directly
       scrollSpeed = Math.min(SCROLL_CAP, SCROLL_BASE + elapsed*SCROLL_RATE) + boost*BOOST_EXTRA;
       heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
@@ -2095,15 +2103,15 @@
       colors:['#fff6d8','#ffe08a','#ffd23f','#ffb14a'] },
 
     { id:'ticket:2000', kind:'ticket', rank:'R', weight:20, m:2000, name:'2000mスキップ券',
-      desc:'2000m から打ち上げます。記録に載るのは、そこから自力で飛んだぶんだけです。',
+      desc:'2000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
       colors:['#7bdcff','#a5b4fc','#e8fbff','#5eead4'] },
 
     { id:'ticket:1000', kind:'ticket', rank:'N', weight:30, m:1000, name:'1000mスキップ券',
-      desc:'1000m から打ち上げます。記録に載るのは、そこから自力で飛んだぶんだけです。',
+      desc:'1000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
       colors:['#dbe4f5','#ffffff','#b8c6de','#eef2ff'] },
 
     { id:'ticket:500', kind:'ticket', rank:'N', weight:42, m:500, name:'500mスキップ券',
-      desc:'500m から打ち上げます。記録に載るのは、そこから自力で飛んだぶんだけです。',
+      desc:'500m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
       colors:['#c9d4e8','#eef2ff','#a8b6d0','#ffffff'] }
   ];
 
