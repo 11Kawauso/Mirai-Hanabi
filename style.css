@@ -64,6 +64,10 @@ html,body{
   box-shadow:0 0 0 1px rgba(255,255,255,0.08), 0 20px 60px rgba(123,47,247,0.35);
   background:var(--ink);
 }
+/* 飛行中でなければ、盤の上に載っているのはスタート／リザルト／問屋の画面だけ。
+   ブラウザは祖先の touch-action:none を子のスクロールにも掛けてくるので、
+   ここを緩めないと中身がはみ出した画面を指で送れなくなる */
+body:not(.playing) #wrap{ touch-action:pan-y; }
 canvas{
   display:block;
   width:100%;
@@ -102,11 +106,17 @@ canvas{
   position:absolute; inset:0;
   /* HUD やゲーム内レイヤーより必ず手前に。ボタンが覆われて押せなくなるのを防ぐ */
   z-index:10;
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
   text-align:center; padding:32px;
+  /* 盤が低い端末だと中身が入り切らない。justify-content:center のままだと
+     はみ出した分が上へ抜けてスクロールでも追えなくなるので、上下に
+     margin:auto の空要素を挟んで「余っていれば中央、足りなければ素直に上から」
+     にしてある */
+  overflow-y:auto;
   background:radial-gradient(ellipse at 50% 30%, rgba(123,47,247,0.28), rgba(5,4,15,0.86) 70%);
   backdrop-filter:blur(2px);
 }
+.overlay::before, .overlay::after{ content:''; margin:auto; flex:0 0 auto; }
 .overlay.hidden{display:none;}
 .title{
   font-size:34px; font-weight:900; letter-spacing:0.06em;
@@ -203,6 +213,251 @@ canvas{
   color:var(--gold);
 }
 .skin-unlock.hidden{ display:none; }
+
+/* 券を使った回の内訳と、貰ったポイント */
+.result-split{
+  margin:0 0 8px;
+  font-size:11px; color:rgba(238,242,255,0.6);
+}
+.result-pt{
+  margin:0 0 16px;
+  font-size:11px; font-weight:700; color:var(--cyan);
+}
+.result-split.hidden, .result-pt.hidden{ display:none; }
+
+/* ---- スタート高度（スキップ券） ---- */
+.skip-block{ margin-top:18px; }
+.skip-block.hidden{ display:none; }
+.skip-row{ display:flex; justify-content:center; flex-wrap:wrap; gap:6px; }
+.skip-btn{
+  appearance:none; cursor:pointer;
+  padding:7px 14px; border-radius:999px;
+  font-family:inherit; font-size:11px; font-weight:700;
+  color:rgba(238,242,255,0.75);
+  background:rgba(238,242,255,0.06);
+  border:1px solid rgba(238,242,255,0.18);
+}
+.skip-btn.on{
+  color:var(--ink);
+  background:linear-gradient(90deg, var(--cyan), #7bdcff);
+  border-color:transparent;
+  box-shadow:0 0 14px -2px rgba(41,241,255,0.7);
+}
+
+/* ---- 花火問屋を開くボタン ---- */
+.btn-sub{
+  margin-top:18px;
+  padding:10px 22px;
+  font-size:12px;
+  color:var(--gold);
+  background:rgba(255,210,63,0.1);
+  border:1px solid rgba(255,210,63,0.45);
+  box-shadow:none;
+  display:inline-flex; align-items:center; gap:8px;
+}
+.btn-pt{
+  font-size:10px; font-weight:800;
+  padding:2px 8px; border-radius:999px;
+  color:var(--ink); background:var(--gold);
+}
+/* ガチャ限定の玉は、未所持でも枠を金にして「別の入手先がある」と分かるように */
+.skin-dot.gacha.locked{
+  border-color:rgba(255,210,63,0.5);
+  color:rgba(255,210,63,0.8);
+}
+
+/* ---- 花火問屋（ガチャ）------------------------------------------------- */
+#gacha-screen{
+  z-index:20;
+  padding:20px 18px 24px;
+  /* 下地は不透明。透かすと後ろのスタート画面の文字と重なって品書きが読めない */
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255,210,63,0.18), rgba(255,210,63,0) 60%),
+    #06040f;
+}
+/* 問屋は品書きなので常に上から読ませる。中央寄せの詰め物は要らない */
+#gacha-screen::before, #gacha-screen::after{ display:none; }
+.gacha-x{
+  position:absolute; top:10px; right:10px;
+  appearance:none; cursor:pointer;
+  width:32px; height:32px; padding:0;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:50%;
+  background:rgba(238,242,255,0.08);
+  border:1px solid rgba(238,242,255,0.16);
+}
+.gacha-x .panel-close-ico{
+  width:16px; height:16px;
+  fill:none; stroke:rgba(238,242,255,0.8); stroke-width:2; stroke-linecap:round;
+}
+.gacha-head{ margin-bottom:14px; }
+.gacha-title{
+  margin:0;
+  font-size:22px; font-weight:900; letter-spacing:0.1em;
+  background:linear-gradient(90deg, var(--gold), var(--pink));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.gacha-sub{
+  margin:5px 0 0;
+  font-size:10px; color:rgba(238,242,255,0.5);
+}
+.gacha-tabs{
+  display:flex; gap:6px; margin-bottom:16px;
+}
+.gacha-tab{
+  appearance:none; cursor:pointer;
+  padding:7px 18px; border-radius:999px;
+  font-family:inherit; font-size:11px; font-weight:700;
+  color:rgba(238,242,255,0.6);
+  background:rgba(238,242,255,0.06);
+  border:1px solid rgba(238,242,255,0.14);
+}
+.gacha-tab.on{
+  color:#fff;
+  background:rgba(255,47,176,0.22);
+  border-color:rgba(255,47,176,0.55);
+}
+.gacha-body{ width:100%; max-width:320px; }
+.gacha-body.hidden{ display:none; }
+.gacha-balance{
+  margin:0 0 12px;
+  font-size:12px; color:rgba(238,242,255,0.7);
+}
+.gacha-balance b{
+  font-size:20px; font-weight:900; color:var(--gold);
+  text-shadow:0 0 12px rgba(255,210,63,0.55);
+}
+.gacha-pull{
+  width:100%;
+  background:linear-gradient(90deg, var(--gold), var(--pink));
+  box-shadow:0 8px 24px rgba(255,210,63,0.3);
+}
+.gacha-pull:disabled{
+  cursor:not-allowed;
+  background:rgba(238,242,255,0.1);
+  color:rgba(238,242,255,0.4);
+  box-shadow:none;
+}
+.gacha-pity{
+  margin:10px 0 16px;
+  font-size:10px; color:rgba(255,210,63,0.75);
+}
+.gacha-rates{ margin:0; padding:0; list-style:none; }
+.gacha-rate{
+  display:flex; align-items:center; gap:8px;
+  padding:6px 8px; border-radius:8px;
+  background:rgba(238,242,255,0.04);
+  font-size:11px;
+}
+.gacha-rate + .gacha-rate{ margin-top:3px; }
+.gacha-rate.gone{ opacity:0.45; }
+.rate-name{ flex:1; text-align:left; color:rgba(238,242,255,0.85); }
+.rate-pct{
+  font-variant-numeric:tabular-nums;
+  color:rgba(238,242,255,0.6);
+}
+.rank-badge{
+  flex:0 0 auto;
+  min-width:26px; padding:2px 5px;
+  border-radius:5px;
+  font-size:9px; font-weight:900; letter-spacing:0.04em;
+  color:var(--ink);
+}
+.rank-N { background:#dbe4f5; }
+.rank-R { background:#7bdcff; }
+.rank-SR{ background:#c084fc; }
+.rank-UR{ background:linear-gradient(90deg,#ffd23f,#ff8a3d); }
+
+/* ---- 手持ちタブ ---- */
+.stock-sec{ margin-bottom:18px; text-align:left; }
+.stock-sec .skin-label{ text-align:left; }
+.stock-row{ display:flex; flex-wrap:wrap; gap:8px; }
+.stock-item{
+  appearance:none; cursor:pointer;
+  display:flex; flex-direction:column; align-items:center; gap:5px;
+  padding:7px 9px; border-radius:10px;
+  font-family:inherit;
+  background:rgba(238,242,255,0.05);
+  border:1px solid rgba(238,242,255,0.14);
+}
+.stock-item.on{
+  border-color:#fff;
+  background:rgba(255,255,255,0.12);
+}
+.stock-item.locked{ cursor:not-allowed; opacity:0.4; }
+.stock-swatch{
+  display:block; width:38px; height:26px; border-radius:5px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,0.15);
+}
+.stock-item.locked .stock-swatch{ background:rgba(238,242,255,0.08) !important; }
+.stock-name{ font-size:10px; color:rgba(238,242,255,0.85); }
+.stock-ticket{
+  padding:6px 12px; border-radius:999px;
+  font-size:11px; font-weight:700;
+  color:var(--cyan);
+  background:rgba(41,241,255,0.12);
+  border:1px solid rgba(41,241,255,0.35);
+}
+.stock-ticket.zero{
+  color:rgba(238,242,255,0.35);
+  background:rgba(238,242,255,0.04);
+  border-color:rgba(238,242,255,0.12);
+}
+.gacha-note{
+  margin:0; font-size:10px; color:rgba(238,242,255,0.4);
+  text-align:left; line-height:1.6;
+}
+
+/* ---- 抽選演出 ---- */
+/* 札は下寄せ。花が開くのは盤の上 3 割あたりなので、そこを空けておく */
+.gacha-fx{
+  position:absolute; inset:0; z-index:30;
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-end;
+  padding-bottom:15%;
+  background:#02010a;
+}
+.gacha-fx.hidden{ display:none; }
+.gacha-fx canvas{ position:absolute; inset:0; width:100%; height:100%; }
+.gacha-card{
+  position:relative; z-index:1;
+  width:min(84%, 300px);
+  padding:22px 20px 18px;
+  border-radius:16px;
+  text-align:center;
+  background:rgba(10,8,24,0.88);
+  border:1px solid rgba(255,255,255,0.18);
+  box-shadow:0 20px 60px rgba(0,0,0,0.6);
+  animation:card-in .35s cubic-bezier(.2,.9,.3,1.4) both;
+}
+.gacha-card.hidden{ display:none; }
+@keyframes card-in{
+  from{ opacity:0; transform:translateY(14px) scale(0.94); }
+  to{ opacity:1; transform:none; }
+}
+.gacha-rank{
+  display:inline-block;
+  min-width:34px; padding:3px 10px;
+  border-radius:6px;
+  font-size:12px; font-weight:900; letter-spacing:0.06em;
+  color:var(--ink);
+}
+.gacha-item{
+  margin:12px 0 8px;
+  font-size:26px; font-weight:900; letter-spacing:0.06em;
+}
+.gacha-desc{
+  margin:0 0 18px;
+  font-size:11px; line-height:1.7;
+  color:rgba(238,242,255,0.7);
+}
+.gacha-ok{ padding:11px 28px; font-size:13px; }
+.gacha-skip{
+  position:absolute; bottom:18px; z-index:1;
+  margin:0;
+  font-size:10px; letter-spacing:0.14em;
+  color:rgba(238,242,255,0.4);
+}
+.gacha-skip.hidden{ display:none; }
 
 /* ---- 操作ボタン（タッチ端末のみ） ---------------------------------------
    盤面はタッチを一切受け付けないので、操作はここに集約する。 */
@@ -324,7 +579,8 @@ body.stick-mode .pad-ud{ display:none; }
 /* 指で押したあとに焦点の枠が残らないようにする。
    :focus-visible は残すので、キーボードで辿ったときは今まで通り見える */
 .pad-btn:focus, #ctrl-toggle:focus, #stick:focus,
-.panel-close:focus, .btn:focus, .skin-dot:focus{ outline:none; }
+.panel-close:focus, .btn:focus, .skin-dot:focus,
+.skip-btn:focus, .gacha-tab:focus, .stock-item:focus, .gacha-x:focus{ outline:none; }
 .pad-btn:focus-visible, #ctrl-toggle:focus-visible,
 .panel-close:focus-visible, .btn:focus-visible, .skin-dot:focus-visible{
   outline:2px solid var(--cyan);

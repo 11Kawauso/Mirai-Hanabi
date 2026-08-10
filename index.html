@@ -65,6 +65,21 @@
     </section>
 
     <section class="g-sec">
+      <h2 class="g-h">花火問屋（ガチャ）</h2>
+      <ul class="g-list">
+        <li>1回の打ち上げで、記録<b>100mごとに1pt</b>たまります</li>
+        <li><b>30pt</b>で1回引けます。スタート画面／結果画面の「花火問屋」から</li>
+        <li>目玉は<b>限定の花火スキン・背景・トレイル</b>の3つ。どれも低確率です</li>
+        <li>目玉が出ない回は<b>1000m／2000mのスキップ券</b>が出ます</li>
+        <li><b>25回</b>引いても目玉が出なければ、次は目玉が確定で出ます</li>
+      </ul>
+      <p class="g-body">
+        スキップ券を使うと、その高度から打ち上がります。ただし<b>記録に載るのは、そこから自力で飛んだぶんだけ</b>です。
+        券を持っている人が有利にならないようにしてあるので、ランキングは同じ条件のまま競えます。
+      </p>
+    </section>
+
+    <section class="g-sec">
       <h2 class="g-h">長岡花火について</h2>
       <p class="g-body">
         新潟県長岡市で毎年8月2日・3日に開かれる「長岡まつり大花火大会」は、日本三大花火大会のひとつに数えられます。
@@ -121,11 +136,21 @@
       <p class="subtitle">その一発は、未来まで届くか。</p>
       <button class="btn" id="start-btn">打ち上げる</button>
 
+      <!-- 券を1枚も持っていない間は丸ごと隠す。script.js が出し入れする -->
+      <div class="skip-block hidden" data-skip-block>
+        <p class="skin-label">スタート高度</p>
+        <div class="skip-row" data-skip-picker></div>
+      </div>
+
       <div class="skin-block">
         <p class="skin-label">花火スキン</p>
         <div class="skin-row" data-skin-picker></div>
         <p class="skin-name" data-skin-name></p>
       </div>
+
+      <button class="btn btn-sub" id="gacha-open" type="button">
+        花火問屋<span class="btn-pt" data-pt-badge>0pt</span>
+      </button>
 
       <p class="howto">スマホは画面下のボタン／スティックで操作（切替ボタンで変更）<br>PC は ← → / A・D、↑ ↓ / W・S<br>画面下の風に流されます。雲・破片・鳥を避けて、少しでも高く。</p>
     </div>
@@ -133,16 +158,82 @@
     <div class="overlay hidden" id="result-screen">
       <p class="result-big">到達高度</p>
       <p class="result-num" id="result-height">0m</p>
+      <!-- スキップ券を使った回だけ出る。記録は「飛んだ分」なので内訳を見せる -->
+      <p class="result-split hidden" id="result-split"></p>
       <p class="result-best" id="result-best">自己ベスト 0m</p>
+      <p class="result-pt hidden" id="result-pt"></p>
       <p class="skin-unlock hidden" id="skin-unlock"></p>
       <button class="btn" id="retry-btn">もう一度打ち上げる</button>
 
       <!-- リトライはスタート画面を経由しないので、ここにも選択肢を置く -->
+      <div class="skip-block hidden" data-skip-block>
+        <p class="skin-label">スタート高度</p>
+        <div class="skip-row" data-skip-picker></div>
+      </div>
+
       <div class="skin-block">
         <p class="skin-label">花火スキン</p>
         <div class="skin-row" data-skin-picker></div>
         <p class="skin-name" data-skin-name></p>
       </div>
+
+      <button class="btn btn-sub" id="gacha-open-2" type="button">
+        花火問屋<span class="btn-pt" data-pt-badge>0pt</span>
+      </button>
+    </div>
+
+    <!-- ---- 花火問屋（ガチャ） ------------------------------------------
+         盤の中に重ねる。スタート／リザルトからしか開かないので、
+         飛行中に開かれる心配はない -->
+    <div class="overlay hidden" id="gacha-screen">
+      <button class="gacha-x" type="button" id="gacha-close" aria-label="閉じる">
+        <svg class="panel-close-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+
+      <div class="gacha-head">
+        <p class="gacha-title">花火問屋</p>
+        <p class="gacha-sub">高度100mごとに1pt。ここで玉を仕入れます</p>
+      </div>
+
+      <div class="gacha-tabs" role="tablist">
+        <button class="gacha-tab on" type="button" data-tab="draw" role="tab">仕入れる</button>
+        <button class="gacha-tab" type="button" data-tab="stock" role="tab">手持ち</button>
+      </div>
+
+      <div class="gacha-body" id="gacha-tab-draw">
+        <p class="gacha-balance">所持ポイント <b id="gacha-pt">0</b> pt</p>
+        <button class="btn gacha-pull" id="gacha-pull" type="button">1回引く（30pt）</button>
+        <p class="gacha-pity" id="gacha-pity"></p>
+        <ul class="gacha-rates" id="gacha-rates"></ul>
+      </div>
+
+      <div class="gacha-body hidden" id="gacha-tab-stock">
+        <div class="stock-sec">
+          <p class="skin-label">背景</p>
+          <div class="stock-row" id="stock-bg"></div>
+        </div>
+        <div class="stock-sec">
+          <p class="skin-label">トレイル</p>
+          <div class="stock-row" id="stock-trail"></div>
+        </div>
+        <div class="stock-sec">
+          <p class="skin-label">スキップ券</p>
+          <div class="stock-row" id="stock-ticket"></div>
+        </div>
+        <p class="gacha-note">花火スキンはスタート画面の「花火スキン」から選べます</p>
+      </div>
+    </div>
+
+    <!-- 抽選演出。盤いっぱいの canvas に打ち上げ→開花を描いて、結果カードを出す -->
+    <div class="gacha-fx hidden" id="gacha-fx">
+      <canvas id="gacha-canvas"></canvas>
+      <div class="gacha-card hidden" id="gacha-card">
+        <span class="gacha-rank" id="gacha-rank">N</span>
+        <p class="gacha-item" id="gacha-item"></p>
+        <p class="gacha-desc" id="gacha-desc"></p>
+        <button class="btn gacha-ok" id="gacha-ok" type="button">受け取る</button>
+      </div>
+      <p class="gacha-skip" id="gacha-skip">タップでスキップ</p>
     </div>
   </div>
 

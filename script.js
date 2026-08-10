@@ -126,6 +126,11 @@
   const skinRows = [...document.querySelectorAll('[data-skin-picker]')];
   const skinNames = [...document.querySelectorAll('[data-skin-name]')];
   const skinUnlockMsg = document.getElementById('skin-unlock');
+  const resultSplit = document.getElementById('result-split');
+  const resultPt = document.getElementById('result-pt');
+  const skipBlocks = [...document.querySelectorAll('[data-skip-block]')];
+  const skipRows = [...document.querySelectorAll('[data-skip-picker]')];
+  const ptBadges = [...document.querySelectorAll('[data-pt-badge]')];
 
   // ---- saved data ----------------------------------------------------------
   // Wrapped: localStorage throws in private mode and on some file:// origins,
@@ -144,6 +149,46 @@
 
   let bestHeightM = Math.max(0, parseFloat(load(STORE_BEST, '0')) || 0);
   let bestBeforeRun = bestHeightM; // to spot skins unlocked by the run just finished
+
+  // ---- gacha: saved state ----------------------------------------------------
+  // 排出テーブルより先に置いてある。スキンの解放判定 isUnlocked() が
+  // 「高度で解放」と「ガチャで所持」の両方を見るので、SKINS より前に要る。
+  const STORE_PT     = 'mirai-hanabi.pt';      // 所持ポイント
+  const STORE_OWNED  = 'mirai-hanabi.owned';   // 引き当てた目玉の id 一覧
+  const STORE_TICKET = 'mirai-hanabi.ticket';  // スキップ券の枚数 {"1000":n,...}
+  const STORE_PITY   = 'mirai-hanabi.pity';    // 目玉が出ていない連続回数（天井用）
+  const STORE_BG     = 'mirai-hanabi.bg';      // 装備中の背景
+  const STORE_TRAIL  = 'mirai-hanabi.trail';   // 装備中のトレイル
+
+  const PT_PER_M   = 100;   // 何メートルで 1pt か
+  const GACHA_COST = 30;    // 1回の値段 = 3,000m ぶん
+  const PITY_MAX   = 25;    // これだけ外し続けたら次は目玉が確定で出る
+
+  let gachaPt = Math.max(0, parseInt(load(STORE_PT, '0'), 10) || 0);
+  let pityCount = Math.max(0, parseInt(load(STORE_PITY, '0'), 10) || 0);
+
+  // 壊れた JSON が入っていても既定値へ落として続行する。ここで例外を投げると
+  // 以降の初期化が全部止まり、ゲームごと起動しなくなる
+  function loadJSON(key, fallback){
+    try{
+      const v = JSON.parse(load(key, ''));
+      return (v && typeof v === 'object') ? v : fallback;
+    }catch(e){ return fallback; }
+  }
+
+  const owned = new Set(Array.isArray(loadJSON(STORE_OWNED, [])) ? loadJSON(STORE_OWNED, []) : []);
+  const tickets = loadJSON(STORE_TICKET, {});
+  const has = (id) => owned.has(id);
+  const ticketCount = (m) => Math.max(0, parseInt(tickets[m], 10) || 0);
+
+  function saveOwned(){ save(STORE_OWNED, JSON.stringify([...owned])); }
+  function saveTickets(){ save(STORE_TICKET, JSON.stringify(tickets)); }
+  function addPoints(n){
+    if(n <= 0) return;
+    gachaPt += n;
+    save(STORE_PT, String(gachaPt));
+    renderPtBadges();
+  }
 
   // ---- ranking --------------------------------------------------------------
   // Firebase Realtime Database over its REST interface: no SDK, no API key, just
@@ -488,7 +533,28 @@
       core:'#ffffff', glow:'#ffd23f', fx:'grand',
       trailFrom:'rgba(255,255,255,0.75)', trailTo:'rgba(255,47,176,0)',
       palette:['#ff2f6d','#ff8a3d','#ffd23f','#5eead4','#29f1ff','#7b2ff7','#ff2fb0','#ffffff'],
-      burst:2.2 }
+      burst:2.2 },
+
+    // ガチャ限定。高度では絶対に解けないので unlock は使わず gacha 印で判定する。
+    // 長岡花火は本編の前に、空襲で亡くなった方への慰霊として白一色の三尺玉
+    // 「白菊」を打ち上げる。派手さで competing させたくないので、色は足さず
+    // 白と銀だけで、正三尺玉よりさらに大きく、ゆっくり垂れるように振ってある。
+    { id:'shirogiku', name:'白菊', gacha:true, unlock:Infinity,
+      core:'#ffffff', glow:'#e8f2ff',
+      trailFrom:'rgba(232,242,255,0.6)', trailTo:'rgba(160,190,230,0)',
+      palette:['#ffffff','#f4f9ff','#e8f2ff','#dbe8fa','#ffffff','#eef4ff'],
+      kiku:{
+        fit:285,        // 正三尺玉(265)よりさらに一回り大きく framed される
+        gravity:20, drag:0.55,
+        life:5.8, lifeSpan:1.8,
+        trail:96, tailStep:0.085,
+        spread:0.6,
+        coreRatio:0.34, coreSpeed:0.44, coreSpread:0.26,
+        // 芯まで白で通す。色玉を混ぜると「慰霊の白菊」ではなくなる
+        pistilRatio:0.08,
+        pistil:['#ffffff','#f0f6ff','#ffffff','#e6efff']
+      },
+      burst:2.5 }
   ];
 
   // "1.5k" style so the number still fits inside a locked swatch
@@ -498,11 +564,13 @@
     return (Number.isInteger(k) ? k : k.toFixed(1)) + 'k';
   }
 
+  // 高度で解ける玉と、ガチャでしか手に入らない玉が混ざる。後者は unlock を見ない
+  function isUnlocked(s){ return s.gacha ? has('skin:' + s.id) : bestHeightM >= s.unlock; }
+
   let skinIndex = Math.min(SKINS.length-1, Math.max(0, parseInt(load(STORE_SKIN, '0'), 10) || 0));
   // a cleared best must not leave a locked skin equipped
-  if(bestHeightM < SKINS[skinIndex].unlock) skinIndex = 0;
+  if(!isUnlocked(SKINS[skinIndex])) skinIndex = 0;
   function skin(){ return SKINS[skinIndex]; }
-  function isUnlocked(s){ return bestHeightM >= s.unlock; }
 
   function selectSkin(i){
     if(!isUnlocked(SKINS[i])) return;
@@ -519,12 +587,14 @@
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'skin-dot' + (i === skinIndex ? ' on' : '') + (open ? '' : ' locked')
-                    + (s.fx === 'grand' ? ' grand' : '');
+                    + (s.fx === 'grand' ? ' grand' : '') + (s.gacha ? ' gacha' : '');
         b.style.setProperty('--core', s.core);
         b.style.setProperty('--glow', s.glow);
         b.disabled = !open;
-        b.setAttribute('aria-label', open ? s.name : `${s.name}（${s.unlock}m で解放）`);
-        if(!open) b.textContent = shortM(s.unlock);
+        // 未所持のガチャ玉に「◯m で解放」は嘘になるので、出どころを書く
+        const why = s.gacha ? '花火問屋のガチャ限定' : `${s.unlock}m で解放`;
+        b.setAttribute('aria-label', open ? s.name : `${s.name}（${why}）`);
+        if(!open) b.textContent = s.gacha ? '限' : shortM(s.unlock);
         b.addEventListener('click', () => selectSkin(i));
         row.appendChild(b);
       });
@@ -539,6 +609,53 @@
     { minH: 1000, top:'#120a30', bottom:'#4a1f74', grid:0.7, stars:0.75, cityAlpha:0.0 },
     { minH: 1600, top:'#08051c', bottom:'#1c0a3a', grid:1.0, stars:1.0,  cityAlpha:0.0 }
   ];
+
+  // ---- backgrounds ----------------------------------------------------------
+  // 空の色・星・グリッド・街灯りを丸ごと差し替える。段の高度は既定と揃えてあり、
+  // 差し替えても「どの高さで景色が変わるか」の体験は動かない。
+  const BACKGROUNDS = [
+    { id:'default', name:'長岡の夜', stages:STAGES,
+      star:'#ffffff', grid:'#29f1ff', city:'#020208', window:'rgba(255,190,90,0.65)' },
+
+    // ガチャ限定。長岡花火は信濃川の河川敷から上がり、玉は川面にも映る。
+    // 紫の夜空を藍と碧に振り替え、グリッド（水平線のルーラー）を金にして、
+    // 上がるほど水鏡の上に立っているように見せる。
+    { id:'shinano', name:'信濃川', gacha:true,
+      star:'#eaf6ff', grid:'#ffd23f', city:'#01060c', window:'rgba(255,236,180,0.75)',
+      stages:[
+        { minH: 0,    top:'#03101a', bottom:'#0a2a38', grid:0.0, stars:0.15 },
+        { minH: 120,  top:'#062232', bottom:'#12495c', grid:0.0, stars:0.3  },
+        { minH: 550,  top:'#07223f', bottom:'#1c5f6e', grid:0.35,stars:0.55 },
+        { minH: 1000, top:'#04182f', bottom:'#12455f', grid:0.7, stars:0.75 },
+        { minH: 1600, top:'#010a18', bottom:'#062033', grid:1.0, stars:1.0  }
+      ] }
+  ];
+
+  // ---- trails ---------------------------------------------------------------
+  // 既定は玉ごとの trailFrom/trailTo をそのまま使う。限定だけが色を上書きする。
+  const TRAILS = [
+    { id:'default', name:'標準', swatch:'linear-gradient(180deg,#ffd23f,rgba(255,120,40,0))' },
+
+    // ガチャ限定。錦の尾を引く「金糸」。太くて長く、走っている間ずっと
+    // 火の粉を落とす。噴射粒(muzzleParticles)を借りているので、玉の色に
+    // 関係なく金の粉が残る
+    { id:'kinshi', name:'金糸', gacha:true,
+      from:'rgba(255,240,190,0.9)', to:'rgba(255,140,20,0)',
+      width:5, lenScale:1.45, sparkRate:0.03,
+      spark:['#fff6d8','#ffe08a','#ffd23f','#ffb14a'],
+      swatch:'linear-gradient(180deg,#fff6d8,#ffd23f 45%,rgba(255,140,20,0))' }
+  ];
+
+  const findBy = (list, id) => list.find(x => x.id === id) || list[0];
+  // 所持していないものが保存されていても既定へ落とす（データを消したときの保険）
+  const ownedGear = (list, id) => {
+    const g = findBy(list, id);
+    return (g.gacha && !has(list === BACKGROUNDS ? 'bg:'+g.id : 'trail:'+g.id)) ? list[0] : g;
+  };
+  let bgId = String(load(STORE_BG, 'default'));
+  let trailId = String(load(STORE_TRAIL, 'default'));
+  function background(){ return ownedGear(BACKGROUNDS, bgId); }
+  function trail(){ return ownedGear(TRAILS, trailId); }
 
   function lerp(a,b,t){ return a + (b-a)*t; }
   function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
@@ -555,6 +672,7 @@
     return `rgb(${r},${g},${bl})`;
   }
   function getStage(heightM){
+    const STAGES = background().stages;
     let cur = STAGES[0], next = STAGES[STAGES.length-1], t = 1;
     for(let i=0;i<STAGES.length;i++){
       if(heightM >= STAGES[i].minH){
@@ -569,6 +687,8 @@
 
   let state = 'start'; // start | playing | exploding | result
   let heightM = 0;
+  let runStartM = 0;   // スキップ券で飛ばした分。記録はここからの差で数える
+  let runTime = 0;     // 打ち上げからの実時間。elapsed と違い券で進まない
   let scrollSpeed = 0;
   let spawnTimer = 0;
   let obstacles = [];
@@ -598,6 +718,7 @@
   let cloudWallTimer = 6;
   let wallPending = false; // a wall is due and is waiting for a clear corridor
   let sparkleTimer = 0;    // emitter for the finale skin's spark trail
+  let trailSparkTimer = 0; // 同じく、装備トレイルが落とす火の粉の間隔
   let cumuloTimer = 0;     // until the next thunderhead
   let cumuloFog = 0;       // 0..1 eased whiteout while inside one
   // 上下の限界に張り付いているときだけ出す赤い線の濃さ。0..1
@@ -700,15 +821,30 @@
   }
   scatterSpeedLines();
 
-  function reset(){
+  // 難易度の時計 elapsed から高度を積分すると
+  //   h(t) = (SCROLL_BASE*t + SCROLL_RATE*t^2/2) / PIXELS_PER_METER
+  // になる（打ち上げの上乗せ boost は 1.2 秒で消えるので無視できる）。
+  // スキップ券はこれを逆に解いて「その高度に着くまでに掛かるはずだった秒数」を
+  // 出す。高度だけ飛ばすと、時間で上がる scrollSpeed が遅いまま高高度の
+  // 障害物に入ってしまい、券を使ったほうが簡単になってしまう
+  function timeForHeight(m){
+    if(m <= 0) return 0;
+    const a = SCROLL_RATE/2, b = SCROLL_BASE, c = -m*PIXELS_PER_METER;
+    return (-b + Math.sqrt(b*b - 4*a*c)) / (2*a);
+  }
+
+  function reset(startM){
+    const from = Math.max(0, startM || 0);
     state = 'launching';
     // 引き出しを開いたまま打ち上がると盤が見えないので必ず畳む
     setPanel(null);
+    closeGacha();
     document.body.classList.add('playing');
     bestBeforeRun = bestHeightM;
     skinUnlockMsg.classList.add('hidden');
     launchTimer = 0;
-    heightM = 0;
+    runStartM = from;
+    heightM = from;
     scrollSpeed = SCROLL_BASE;
     spawnTimer = 1.0;
     cloudWallTimer = 5 + Math.random()*3;
@@ -721,7 +857,10 @@
     obstacles = [];
     particles = [];
     muzzleParticles = [];
-    elapsed = 0;
+    // 難易度の時計は開始高度ぶん進めておく。打ち上げの演出だけは
+    // 何度目でも同じに見せたいので、boost は runTime という別の時計で回す
+    elapsed = timeForHeight(from);
+    runTime = 0;
     player.x = GAME_W/2;
     player.y = LAUNCH_Y;
     player.vx = 0;
@@ -729,11 +868,12 @@
     windSpeed = 0; // every run starts calm, then builds once the gauge appears
     windTarget = 0;
     windTimer = 0;
-    windVisible = 0;
+    // 券で飛んだ先はもう風の吹く高さなので、ゲージは畳んだ状態から出し直さない
+    windVisible = from > 0 ? 1 : 0;
     windDebrisTimer = 0.4;
     scatterSpeedLines();
     scatterWindStreaks();
-    hudHeight.textContent = '0m'; // else the previous run's height lingers through the launch animation
+    hudHeight.textContent = Math.floor(from) + 'm'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
     resultScreen.classList.add('hidden');
     spawnMuzzleFlash();
@@ -929,8 +1069,11 @@
         twPhase: Math.random()*Math.PI*2
       });
     }
-    if(heightM > bestHeightM){
-      bestHeightM = heightM;
+    // 記録は「自力で飛んだ分」。券で貰った高度は差し引くので、ランキングは
+    // 券を持っている人と持っていない人で同じ土俵のままになる
+    const scoreM = Math.max(0, heightM - runStartM);
+    if(scoreM > bestHeightM){
+      bestHeightM = scoreM;
       save(STORE_BEST, String(Math.floor(bestHeightM)));
     }
   }
@@ -939,9 +1082,31 @@
     state = 'result';
     document.body.classList.remove('playing'); // スワイプを解禁する
     stickRelease(); // 倒したまま終わってもノブは中央へ戻す
+    const scoreM = Math.max(0, heightM - runStartM);
     resultHeight.textContent = Math.floor(heightM) + 'm';
     resultBest.textContent = '自己ベスト ' + Math.floor(bestHeightM) + 'm';
     hudBest.textContent = Math.floor(bestHeightM) + 'm';
+
+    // 券を使った回は、大きい数字と記録が食い違う。黙って違う値を送ると
+    // バグに見えるので、内訳をその場で見せる
+    if(runStartM > 0){
+      resultSplit.textContent =
+        `スタート ${Math.floor(runStartM)}m ／ 記録は自力の ${Math.floor(scoreM)}m`;
+      resultSplit.classList.remove('hidden');
+    } else {
+      resultSplit.classList.add('hidden');
+    }
+
+    // ポイントは毎回の記録から。自己ベストではないので、失敗した回でも貯まる
+    const gained = Math.floor(scoreM / PT_PER_M);
+    if(gained > 0){
+      addPoints(gained);
+      resultPt.textContent = `花火問屋のポイント +${gained}pt（所持 ${gachaPt}pt）`;
+      resultPt.classList.remove('hidden');
+    } else {
+      resultPt.classList.add('hidden');
+    }
+    renderSkipPickers(); // 券を使った直後は残り枚数が減っている
 
     // anything this run just put within reach?
     const opened = SKINS.filter(s => s.unlock > 0 && bestBeforeRun < s.unlock && bestHeightM >= s.unlock);
@@ -1004,7 +1169,8 @@
     // Without this the first 0.85s is a dead-still screen and the shot reads as
     // floating rather than being flung out of a cannon.
     if(state === 'launching' || state === 'playing'){
-      boost = Math.pow(1 - Math.min(1, elapsed/BOOST_DURATION), 2); // ease-out
+      runTime += dt;
+      boost = Math.pow(1 - Math.min(1, runTime/BOOST_DURATION), 2); // ease-out
       // speed increases very gradually with time survived, not with height directly
       scrollSpeed = Math.min(SCROLL_CAP, SCROLL_BASE + elapsed*SCROLL_RATE) + boost*BOOST_EXTRA;
       heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
@@ -1023,6 +1189,23 @@
             r: 1.2 + Math.random()*1.8,
             life: 0.32 + Math.random()*0.22, maxLife: 0.54,
             color: pal[Math.floor(Math.random()*pal.length)]
+          });
+        }
+      }
+
+      // 火の粉を落とすトレイル（金糸）。万華と重ねて着けても、色が別なので
+      // どちらの粉かは見て分かる。別タイマーにしてあるので密度も干渉しない
+      const tr = trail();
+      if(tr.sparkRate){
+        trailSparkTimer -= dt;
+        while(trailSparkTimer <= 0){
+          trailSparkTimer += tr.sparkRate;
+          muzzleParticles.push({
+            x: player.x + (Math.random()-0.5)*8, y: player.y + player.r*1.6,
+            vx: (Math.random()-0.5)*30, vy: 20 + Math.random()*60,
+            r: 1 + Math.random()*1.6,
+            life: 0.4 + Math.random()*0.35, maxLife: 0.75,
+            color: tr.spark[Math.floor(Math.random()*tr.spark.length)]
           });
         }
       }
@@ -1241,13 +1424,14 @@
 
   function drawBackgroundDetails(){
     const { cur, next, t } = getStage(heightM);
+    const bg = background();
 
     const starDensity = lerp(cur.stars, next.stars, t);
     ctx.save();
     for(const s of stars){
       const tw = 0.55 + 0.45*Math.sin(elapsed*2 + s.tw);
       ctx.globalAlpha = starDensity * tw;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = bg.star;
       ctx.beginPath();
       ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
       ctx.fill();
@@ -1279,7 +1463,7 @@
         ctx.scale(z, z);
         ctx.translate(-cx, -cy);
       }
-      ctx.strokeStyle = '#29f1ff';
+      ctx.strokeStyle = bg.grid;
       ctx.lineWidth = 1;
 
       // batched into one path per group - this used to be one stroke per line
@@ -1310,14 +1494,14 @@
     const maxBuildingH = Math.max(...buildings);
     if(cityDrop < GAME_H + maxBuildingH + 40){
       ctx.save();
-      ctx.fillStyle = '#020208';
+      ctx.fillStyle = bg.city;
       let x = 0;
       const bw = GAME_W / buildings.length;
       for(const h of buildings){
         ctx.fillRect(x, GAME_H - h + cityDrop, bw-3, h);
         x += bw;
       }
-      ctx.fillStyle = 'rgba(255,190,90,0.65)';
+      ctx.fillStyle = bg.window;
       for(let i=0;i<14;i++){
         ctx.fillRect((i*bw*0.7)%GAME_W + 6, GAME_H-20-Math.random()*60 + cityDrop, 3, 3);
       }
@@ -1514,15 +1698,17 @@
     ctx.fill();
     ctx.restore();
 
-    // exhaust trail, stretched while the muzzle kick is still pushing
-    const tailLen = 14 + boost*54;
+    // exhaust trail, stretched while the muzzle kick is still pushing.
+    // 装備中のトレイルが色と太さを上書きする。既定は玉自身の色をそのまま使う
+    const tr = trail();
+    const tailLen = (14 + boost*54) * (tr.lenScale || 1);
     const tailTop = player.y + player.r;
     ctx.save();
     const tailGrad = ctx.createLinearGradient(player.x, tailTop, player.x, tailTop + tailLen);
-    tailGrad.addColorStop(0, sk.trailFrom);
-    tailGrad.addColorStop(1, sk.trailTo);
+    tailGrad.addColorStop(0, tr.from || sk.trailFrom);
+    tailGrad.addColorStop(1, tr.to   || sk.trailTo);
     ctx.strokeStyle = tailGrad;
-    ctx.lineWidth = 3 + boost*2;
+    ctx.lineWidth = (tr.width || 3) + boost*2;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(player.x, tailTop);
@@ -1807,6 +1993,417 @@
     if(e.code === 'ArrowDown' || e.code === 'KeyS') moveDown = false;
   });
 
+  // ---- gacha: pool ----------------------------------------------------------
+  // レア度は N/R/SR/UR。表示は花火の等級らしく「並・上・特上・極上」を添える。
+  const RANKS = {
+    N:  { label:'N',  name:'並',   color:'#dbe4f5' },
+    R:  { label:'R',  name:'上',   color:'#7bdcff' },
+    SR: { label:'SR', name:'特上', color:'#c084fc' },
+    UR: { label:'UR', name:'極上', color:'#ffd23f' }
+  };
+
+  // weight は「そのとき引ける中での相対比」。目玉は当たると抜けるので、
+  // 揃っていくほど残りの目玉が出やすくなる（合計は毎回引き直して 100% にする）
+  const GACHA_POOL = [
+    { id:'skin:shirogiku', kind:'skin', rank:'UR', weight:2, name:'白菊',
+      desc:'長岡花火が本編の前に上げる、慰霊の白一色の三尺玉。スタート画面の「花火スキン」から選べます。',
+      colors:['#ffffff','#f4f9ff','#e8f2ff','#dbe8fa'] },
+
+    { id:'bg:shinano', kind:'bg', rank:'SR', weight:3, name:'信濃川',
+      desc:'玉が上がる河川敷の空。夜空が藍と碧に変わり、地平のルーラーが金になります。',
+      colors:['#ffd23f','#29f1ff','#7bdcff','#eaf6ff'] },
+
+    { id:'trail:kinshi', kind:'trail', rank:'SR', weight:3, name:'金糸',
+      desc:'太く長い金の尾。飛んでいるあいだ、ずっと火の粉を落とし続けます。',
+      colors:['#fff6d8','#ffe08a','#ffd23f','#ffb14a'] },
+
+    { id:'ticket:2000', kind:'ticket', rank:'R', weight:25, m:2000, name:'2000mスキップ券',
+      desc:'2000m から打ち上げます。記録に載るのは、そこから自力で飛んだぶんだけです。',
+      colors:['#7bdcff','#a5b4fc','#e8fbff','#5eead4'] },
+
+    { id:'ticket:1000', kind:'ticket', rank:'N', weight:67, m:1000, name:'1000mスキップ券',
+      desc:'1000m から打ち上げます。記録に載るのは、そこから自力で飛んだぶんだけです。',
+      colors:['#dbe4f5','#ffffff','#b8c6de','#eef2ff'] }
+  ];
+
+  const isPrize = (e) => e.kind !== 'ticket';
+  const inPool  = (e) => !(isPrize(e) && has(e.id)); // 引き当て済みの目玉は出ない
+
+  function rollGacha(){
+    const pool = GACHA_POOL.filter(inPool);
+    const prizes = pool.filter(isPrize);
+    // 天井。PITY_MAX 回続けて目玉が出なければ、その回は目玉から確定で出す。
+    // 目玉が全部揃っていれば天井は働かず、券だけが出続ける
+    const forced = prizes.length > 0 && pityCount + 1 >= PITY_MAX;
+    const from = forced ? prizes : pool;
+    const total = from.reduce((s,e) => s + e.weight, 0);
+
+    let r = Math.random() * total;
+    let hit = from[from.length - 1];
+    for(const e of from){ r -= e.weight; if(r <= 0){ hit = e; break; } }
+
+    pityCount = isPrize(hit) ? 0 : pityCount + 1;
+    save(STORE_PITY, String(pityCount));
+
+    if(hit.kind === 'ticket'){
+      tickets[hit.m] = ticketCount(hit.m) + 1;
+      saveTickets();
+    } else {
+      owned.add(hit.id);
+      saveOwned();
+    }
+    return hit;
+  }
+
+  // ---- gacha: shop UI -------------------------------------------------------
+  const gachaScreen = document.getElementById('gacha-screen');
+  const gachaPtEl   = document.getElementById('gacha-pt');
+  const gachaPullBtn= document.getElementById('gacha-pull');
+  const gachaPityEl = document.getElementById('gacha-pity');
+  const gachaRatesEl= document.getElementById('gacha-rates');
+  const stockBg     = document.getElementById('stock-bg');
+  const stockTrail  = document.getElementById('stock-trail');
+  const stockTicket = document.getElementById('stock-ticket');
+
+  function renderPtBadges(){
+    for(const el of ptBadges) el.textContent = gachaPt + 'pt';
+    if(gachaPtEl) gachaPtEl.textContent = String(gachaPt);
+    if(gachaPullBtn){
+      gachaPullBtn.disabled = gachaPt < GACHA_COST || fxRunning;
+      gachaPullBtn.textContent = `1回引く（${GACHA_COST}pt）`;
+    }
+  }
+
+  function rankBadge(rank){
+    const el = document.createElement('span');
+    el.className = 'rank-badge rank-' + rank;
+    el.textContent = RANKS[rank].label;
+    return el;
+  }
+
+  function renderRates(){
+    if(!gachaRatesEl) return;
+    gachaRatesEl.textContent = '';
+    const pool = GACHA_POOL.filter(inPool);
+    const total = pool.reduce((s,e) => s + e.weight, 0) || 1;
+    for(const e of GACHA_POOL){
+      const gone = !inPool(e);
+      const li = document.createElement('li');
+      li.className = 'gacha-rate' + (gone ? ' gone' : '');
+      li.appendChild(rankBadge(e.rank));
+      const n = document.createElement('span');
+      n.className = 'rate-name';
+      n.textContent = e.name;
+      const p = document.createElement('span');
+      p.className = 'rate-pct';
+      p.textContent = gone ? '獲得済み' : (e.weight/total*100).toFixed(1) + '%';
+      li.append(n, p);
+      gachaRatesEl.appendChild(li);
+    }
+    if(gachaPityEl){
+      const left = PITY_MAX - pityCount;
+      const anyPrize = pool.some(isPrize);
+      gachaPityEl.textContent = anyPrize
+        ? `あと ${Math.max(1, left)} 回引くと、目玉のどれかが確定で出ます`
+        : '目玉はすべて獲得済みです';
+    }
+  }
+
+  // 背景・トレイルは持っていれば着せ替えできる。券は枚数を出すだけ
+  function gearButton(list, g, ownedFlag, current, onPick){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'stock-item' + (current ? ' on' : '') + (ownedFlag ? '' : ' locked');
+    b.disabled = !ownedFlag;
+    const sw = document.createElement('span');
+    sw.className = 'stock-swatch';
+    sw.style.background = g.swatch || `linear-gradient(180deg, ${g.stages[2].top}, ${g.stages[2].bottom})`;
+    const nm = document.createElement('span');
+    nm.className = 'stock-name';
+    nm.textContent = ownedFlag ? g.name : '？？？';
+    b.append(sw, nm);
+    if(ownedFlag) b.addEventListener('click', onPick);
+    return b;
+  }
+
+  function renderStock(){
+    if(!stockBg) return;
+    stockBg.textContent = '';
+    for(const g of BACKGROUNDS){
+      const ok = !g.gacha || has('bg:' + g.id);
+      stockBg.appendChild(gearButton(BACKGROUNDS, g, ok, background().id === g.id, () => {
+        bgId = g.id; save(STORE_BG, bgId); renderStock();
+      }));
+    }
+    stockTrail.textContent = '';
+    for(const g of TRAILS){
+      const ok = !g.gacha || has('trail:' + g.id);
+      stockTrail.appendChild(gearButton(TRAILS, g, ok, trail().id === g.id, () => {
+        trailId = g.id; save(STORE_TRAIL, trailId); renderStock();
+      }));
+    }
+    stockTicket.textContent = '';
+    for(const m of [1000, 2000]){
+      const n = ticketCount(m);
+      const el = document.createElement('span');
+      el.className = 'stock-ticket' + (n ? '' : ' zero');
+      el.textContent = `${m}m ×${n}`;
+      stockTicket.appendChild(el);
+    }
+  }
+
+  function openGacha(){
+    if(inFlight()) return;
+    renderPtBadges();
+    renderRates();
+    renderStock();
+    gachaScreen.classList.remove('hidden');
+  }
+  function closeGacha(){
+    gachaScreen.classList.add('hidden');
+    endFx(true);
+  }
+
+  for(const id of ['gacha-open','gacha-open-2']){
+    const b = document.getElementById(id);
+    if(b) b.addEventListener('click', openGacha);
+  }
+  document.getElementById('gacha-close').addEventListener('click', closeGacha);
+  for(const tab of document.querySelectorAll('.gacha-tab')){
+    tab.addEventListener('click', () => {
+      for(const t of document.querySelectorAll('.gacha-tab')) t.classList.toggle('on', t === tab);
+      document.getElementById('gacha-tab-draw').classList.toggle('hidden', tab.dataset.tab !== 'draw');
+      document.getElementById('gacha-tab-stock').classList.toggle('hidden', tab.dataset.tab !== 'stock');
+    });
+  }
+
+  // ---- gacha: 抽選演出 ------------------------------------------------------
+  // 盤と同じ 480x800 の座標系で、下から玉が上がって開く。レア度で尾の色・
+  // 開いたときの規模・閃光が変わるので、開く前の尾の色で当たりが読める。
+  const gachaFx     = document.getElementById('gacha-fx');
+  const gachaCanvas = document.getElementById('gacha-canvas');
+  const gctx = gachaCanvas.getContext('2d');
+  const gachaCard   = document.getElementById('gacha-card');
+  const gachaRankEl = document.getElementById('gacha-rank');
+  const gachaItemEl = document.getElementById('gacha-item');
+  const gachaDescEl = document.getElementById('gacha-desc');
+  const gachaSkipEl = document.getElementById('gacha-skip');
+
+  const FX_RISE = 1.15;   // 上がりきるまでの秒数
+  const FX_CARD = 0.6;    // 開いてから札が出るまで
+  // 札は盤の下寄りに出る。花はその上で開かせないと、いちばん見せたい瞬間が
+  // 札に覆われてしまう
+  const FX_BURST_Y = GAME_H * 0.29;
+  const FX_DRAG = 1.15;   // 粒の失速。到達半径はおよそ v/FX_DRAG になる
+  // レア度ごとの規模。UR だけ閃光と二段の花が付く
+  const FX_SCALE = { N:{n:80,v:195,r:2.6}, R:{n:140,v:245,r:3.0},
+                     SR:{n:220,v:295,r:3.4}, UR:{n:340,v:345,r:4.0} };
+
+  let fxRunning = false, fxRaf = 0, fxT = 0, fxLast = 0;
+  let fxEntry = null, fxParts = [], fxBurst = false, fxFlash = 0;
+
+  function sizeGachaCanvas(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    gachaCanvas.width = Math.round(GAME_W*dpr);
+    gachaCanvas.height = Math.round(GAME_H*dpr);
+    gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  sizeGachaCanvas();
+  window.addEventListener('resize', sizeGachaCanvas);
+
+  function fxBurstNow(){
+    if(fxBurst) return;
+    fxBurst = true;
+    const s = FX_SCALE[fxEntry.rank];
+    const cols = fxEntry.colors;
+    fxFlash = fxEntry.rank === 'UR' ? 1 : (fxEntry.rank === 'SR' ? 0.55 : 0.25);
+    for(let i=0;i<s.n;i++){
+      // 等分割の枠内で少しだけ散らす。ゲーム本編の菊と同じ考え方で、
+      // 完全な乱数だと必ず粗密ができてしまう
+      const a = ((i + 0.5 + (Math.random()-0.5)*0.8) / s.n) * Math.PI*2;
+      // UR は内側にもう一枚。二段になると格が上がって見える
+      const layer = (fxEntry.rank === 'UR' && i % 3 === 0) ? 0.5 : 1;
+      const sp = s.v * (0.72 + Math.random()*0.38) * layer;
+      fxParts.push({
+        x:GAME_W/2, y:FX_BURST_Y,
+        vx:Math.cos(a)*sp, vy:Math.sin(a)*sp,
+        r:(1.2 + Math.random()*1.9) * (s.r/3),
+        // 札が出てからも花が残っているように長めに取る。ここが短いと、
+        // 名前を読んでいる間に背景がただの黒板になってしまう
+        life:2.2 + Math.random()*1.6, maxLife:3.8,
+        color:cols[Math.floor(Math.random()*cols.length)]
+      });
+    }
+  }
+
+  function fxFrame(ts){
+    if(!fxRunning) return;
+    const dt = Math.min(0.05, (ts - fxLast)/1000 || 0);
+    fxLast = ts;
+    fxT += dt;
+
+    gctx.clearRect(0, 0, GAME_W, GAME_H);
+    const rankCol = RANKS[fxEntry.rank].color;
+
+    if(fxT < FX_RISE){
+      // 打ち上げ。上がるほど減速して、開く直前に一拍ためる
+      const p = fxT / FX_RISE;
+      const e = 1 - Math.pow(1-p, 2.2);
+      const y = GAME_H + 30 + (FX_BURST_Y - GAME_H - 30) * e;
+      const tail = 90 + 80*(1-p);
+
+      const g = gctx.createLinearGradient(0, y, 0, y + tail);
+      g.addColorStop(0, rankCol);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      gctx.save();
+      gctx.globalAlpha = 0.85;
+      gctx.strokeStyle = g;
+      gctx.lineWidth = 4 + (FX_SCALE[fxEntry.rank].r - 2.4);
+      gctx.lineCap = 'round';
+      gctx.beginPath();
+      gctx.moveTo(GAME_W/2, y);
+      gctx.lineTo(GAME_W/2, y + tail);
+      gctx.stroke();
+      gctx.globalAlpha = 1;
+      gctx.shadowBlur = 22;
+      gctx.shadowColor = rankCol;
+      gctx.fillStyle = '#fff';
+      gctx.beginPath();
+      gctx.arc(GAME_W/2, y, 5.5, 0, Math.PI*2);
+      gctx.fill();
+      gctx.restore();
+    } else {
+      fxBurstNow();
+    }
+
+    // 開花。粒は本編と同じく抗力で失速し、重力で垂れる
+    for(let i=fxParts.length-1;i>=0;i--){
+      const p = fxParts[i];
+      p.vx -= p.vx * FX_DRAG * dt;
+      p.vy -= p.vy * FX_DRAG * dt;
+      p.vy += 95 * dt;
+      p.x += p.vx*dt; p.y += p.vy*dt;
+      p.life -= dt;
+      if(p.life <= 0){ fxParts.splice(i,1); continue; }
+      const a = Math.min(1, p.life / (p.maxLife*0.5));
+      const spr = glowSprite(p.color);
+      const size = p.r * 4; // 本編の粒(drawGlowParticles)と同じ比率にして見た目を揃える
+      gctx.globalAlpha = a;
+      gctx.drawImage(spr, p.x - size/2, p.y - size/2, size, size);
+    }
+    gctx.globalAlpha = 1;
+
+    if(fxFlash > 0){
+      gctx.fillStyle = `rgba(255,255,255,${fxFlash*0.75})`;
+      gctx.fillRect(0, 0, GAME_W, GAME_H);
+      fxFlash = Math.max(0, fxFlash - dt*2.4);
+    }
+
+    if(fxBurst && fxT >= FX_RISE + FX_CARD && gachaCard.classList.contains('hidden')){
+      showFxCard();
+    }
+    fxRaf = requestAnimationFrame(fxFrame);
+  }
+
+  function showFxCard(){
+    const r = RANKS[fxEntry.rank];
+    gachaRankEl.textContent = r.label;
+    gachaRankEl.className = 'gacha-rank rank-' + fxEntry.rank;
+    gachaItemEl.textContent = fxEntry.name;
+    gachaItemEl.style.color = r.color;
+    gachaDescEl.textContent = r.name + '　' + fxEntry.desc;
+    gachaCard.classList.remove('hidden');
+    gachaSkipEl.classList.add('hidden');
+  }
+
+  function startFx(entry){
+    fxEntry = entry;
+    fxParts = [];
+    fxBurst = false;
+    fxFlash = 0;
+    fxT = 0;
+    fxLast = performance.now();
+    fxRunning = true;
+    gachaCard.classList.add('hidden');
+    gachaSkipEl.classList.remove('hidden');
+    gachaFx.classList.remove('hidden');
+    sizeGachaCanvas();
+    renderPtBadges(); // 引いている間はボタンを押させない
+    fxRaf = requestAnimationFrame(fxFrame);
+  }
+
+  // silent = 演出ごと畳む（打ち上げ・画面を閉じたとき）。
+  // それ以外は札を消して、増えた持ち物を反映するだけ
+  function endFx(silent){
+    if(fxRaf) cancelAnimationFrame(fxRaf);
+    fxRaf = 0;
+    fxRunning = false;
+    fxParts = [];
+    gachaFx.classList.add('hidden');
+    gachaCard.classList.add('hidden');
+    if(silent) return;
+    renderPtBadges();
+    renderRates();
+    renderStock();
+    renderSkins();
+    renderSkipPickers();
+  }
+
+  gachaPullBtn.addEventListener('click', () => {
+    if(fxRunning || gachaPt < GACHA_COST) return;
+    gachaPt -= GACHA_COST;
+    save(STORE_PT, String(gachaPt));
+    startFx(rollGacha());
+  });
+
+  // 演出を最後まで見なくてよいように。札が出たあとは何もしない
+  gachaFx.addEventListener('click', () => {
+    if(!fxRunning) return;
+    if(gachaCard.classList.contains('hidden')){
+      fxT = FX_RISE + FX_CARD;
+      fxBurstNow();
+      showFxCard();
+    }
+  });
+  document.getElementById('gacha-ok').addEventListener('click', (e) => {
+    e.stopPropagation();
+    endFx(false);
+  });
+
+  // ---- skip tickets ---------------------------------------------------------
+  let pendingSkip = 0; // 次の打ち上げで使う券。使った瞬間に 0 へ戻る
+
+  function renderSkipPickers(){
+    const owns = [1000, 2000].filter(m => ticketCount(m) > 0);
+    if(pendingSkip && ticketCount(pendingSkip) <= 0) pendingSkip = 0;
+    // 券を1枚も持っていないなら、選ぶものが無いので枠ごと隠す
+    for(const b of skipBlocks) b.classList.toggle('hidden', owns.length === 0);
+    for(const row of skipRows){
+      row.textContent = '';
+      for(const m of [0, ...owns]){
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'skip-btn' + (pendingSkip === m ? ' on' : '');
+        b.textContent = m === 0 ? '地上から' : `${m}m ×${ticketCount(m)}`;
+        b.addEventListener('click', () => { pendingSkip = m; renderSkipPickers(); });
+        row.appendChild(b);
+      }
+    }
+  }
+
+  // 券は打ち上げた瞬間に1枚減る。結果画面まで持ち越さないので、
+  // 途中でリロードされても「使ったのに残っている」ことにはならない
+  function launch(){
+    let from = 0;
+    if(pendingSkip && ticketCount(pendingSkip) > 0){
+      from = pendingSkip;
+      tickets[from] = ticketCount(from) - 1;
+      saveTickets();
+      pendingSkip = 0;
+    }
+    reset(from);
+  }
+
   // ---- on-screen pad --------------------------------------------------------
   // The canvas itself takes no touch input at all; steering is entirely through
   // these buttons, so a stray tap or swipe on the play area does nothing.
@@ -1988,16 +2585,22 @@
     el.addEventListener('click', () => setPanel(null));
   }
   window.addEventListener('keydown', (e) => {
-    if(e.key === 'Escape' && openPanel) setPanel(null);
+    if(e.key !== 'Escape') return;
+    // 演出中でも降りられるように、手前にあるものから順に畳む
+    if(fxRunning){ endFx(false); return; }
+    if(!gachaScreen.classList.contains('hidden')){ closeGacha(); return; }
+    if(openPanel) setPanel(null);
   });
   // 画面を広げたら常駐表示に戻るので、引き出しの状態は捨てる
   panelMQ.addEventListener('change', () => { setPanel(null); syncPanelA11y(); });
   syncPanelA11y();
 
-  startBtn.addEventListener('click', reset);
-  retryBtn.addEventListener('click', reset);
+  startBtn.addEventListener('click', launch);
+  retryBtn.addEventListener('click', launch);
 
   hudBest.textContent = Math.floor(bestHeightM) + 'm';
   renderSkins();
+  renderPtBadges();
+  renderSkipPickers();
   refreshRanking();
 })();

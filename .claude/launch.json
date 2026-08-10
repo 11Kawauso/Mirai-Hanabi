@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "static",
+      "name": "mirai-hanabi",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8765"],
-      "port": 8765
+      "runtimeArgs": ["-m", "http.server", "5173"],
+      "port": 5173
     }
   ]
 }
