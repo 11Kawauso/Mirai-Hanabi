@@ -9,6 +9,21 @@
 <script src="script.js" defer></script>
 </head>
 <body>
+
+<!-- 横向きのときだけ出る。ブラウザのタブ内では向きを本当に固定できない
+     （screen.orientation.lock は全画面時のみ、iOS Safari は非対応）ので、
+     横になったら盤ごと覆って、戻すまでゲームを止める -->
+<div id="rotate" role="alertdialog" aria-live="assertive">
+  <svg class="rotate-ico" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+    <rect x="20" y="6" width="24" height="42" rx="4"/>
+    <line x1="27" y1="42" x2="37" y2="42"/>
+    <path class="rotate-arc" d="M12 52a26 26 0 0 0 40 0"/>
+    <path class="rotate-tip" d="M52 44v9h-9"/>
+  </svg>
+  <p class="rotate-title">画面を縦にしてください</p>
+  <p class="rotate-note">ミライ花火は縦画面専用です。<br>端末を縦に戻すと、そのまま続きから遊べます。</p>
+</div>
+
 <div id="stage">
 
   <!-- パネルを開いている間だけ盤面を覆う。タップでも閉じられる -->

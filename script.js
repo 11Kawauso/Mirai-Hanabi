@@ -2010,12 +2010,26 @@
     drawWindGauge(); // HUD, never scaled
   }
 
+  // ---- 横向きの停止 ---------------------------------------------------------
+  // 条件は style.css の #rotate と必ず同じにする。片方だけ変えると、
+  // 「お断りは出ているのに裏でゲームが進んでいる」状態になる
+  const rotateMQ = window.matchMedia('(orientation: landscape) and (max-height: 600px) and (hover: none)');
+  rotateMQ.addEventListener('change', (e) => {
+    if(!e.matches) return;
+    // 傾けた拍子に押しっぱなしのまま止まると、縦へ戻した瞬間に横へ吹っ飛ぶ
+    keyLeft = keyRight = moveUp = moveDown = false;
+    stickRelease();
+  });
+
   let lastTime = 0;
   function loop(ts){
     if(!lastTime) lastTime = ts;
     const dt = Math.min(0.05, (ts-lastTime)/1000);
     lastTime = ts;
-    update(dt);
+    // 横向きの間は時間を進めない。飛行中に持ち替えただけで死ぬのは理不尽なので、
+    // 縦へ戻すと止まったところから続く。dt は毎フレーム捨てているので、
+    // 戻した瞬間にまとめて進むこともない
+    if(!rotateMQ.matches) update(dt);
     draw();
     requestAnimationFrame(loop);
   }

@@ -612,6 +612,50 @@ body.stick-mode .pad-ud{ display:none; }
   outline-offset:2px;
 }
 
+/* ---- 横向きのお断り -------------------------------------------------------
+   盤は 480:800 固定なので、横向きのスマホでは高さが足りず、盤が指より
+   小さくなって遊べない。出す条件は3つの合わせ技:
+     orientation:landscape … 横向き
+     max-height:600px      … スマホ相当の低さ。タブレット横(768px〜)は素通り
+     hover:none            … マウスのある端末を確実に外す
+   どれか一つでも欠けると、横長のデスクトップウィンドウにまで出てしまう */
+#rotate{ display:none; }
+@media (orientation: landscape) and (max-height: 600px) and (hover: none){
+  #rotate{
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    position:fixed; inset:0; z-index:100;
+    padding:24px; text-align:center;
+    /* 下の操作ボタンを触れないよう不透明で覆う */
+    background:radial-gradient(ellipse at 50% 40%, #14092b, #05040f 70%);
+  }
+}
+.rotate-ico{
+  width:64px; height:64px; margin-bottom:18px;
+  fill:none; stroke:var(--cyan); stroke-width:3;
+  stroke-linecap:round; stroke-linejoin:round;
+  filter:drop-shadow(0 0 10px rgba(41,241,255,0.5));
+  animation:rotate-hint 2.6s ease-in-out infinite;
+}
+.rotate-arc, .rotate-tip{ stroke:var(--pink); stroke-width:3; }
+/* 端末を起こす動きそのものを見せる。90度ではなく手前で止めて戻すと、
+   「これから縦にする」の途中に見えて意図が伝わりやすい */
+@keyframes rotate-hint{
+  0%, 55%, 100%{ transform:rotate(-90deg); }
+  25%, 40%{ transform:rotate(0deg); }
+}
+.rotate-title{
+  margin:0 0 10px;
+  font-size:19px; font-weight:900; letter-spacing:0.08em;
+  background:linear-gradient(90deg, var(--cyan), var(--pink));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.rotate-note{
+  margin:0;
+  font-size:12px; line-height:1.8;
+  color:rgba(238,242,255,0.6);
+}
+
 /* タッチ端末では盤を少し小さくしてボタンの居場所を作る */
 @media (hover: none){
   /* 96dvh の残り 4dvh は #stage の上下パディング。
@@ -940,4 +984,7 @@ body.playing #swipe-hint{ visibility:hidden; }
 /* 動きを減らす設定ならスライドさせない */
 @media (prefers-reduced-motion: reduce){
   #guide, #ranking, #scrim{ transition:none; }
+  /* 傾けたら出る画面が回り続けるのは、目が回る人には特にきつい。
+     止めても縦向きのアイコンとして意味は通る */
+  .rotate-ico{ animation:none; transform:rotate(0deg); }
 }
