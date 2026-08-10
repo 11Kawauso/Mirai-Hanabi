@@ -2097,35 +2097,29 @@
 
   // weight は「そのとき引ける中での相対比」。目玉は当たると抜けるので、
   // 揃っていくほど残りの目玉が出やすくなる（合計は毎回引き直して 100% にする）
+  // 演出の花火はレア度によらず薄い黄色なので、品ごとの色は持たせていない
   const GACHA_POOL = [
     { id:'skin:shirogiku', kind:'skin', rank:'UR', weight:2, name:'白菊',
-      desc:'長岡花火が本編の前に上げる、慰霊の白一色の三尺玉。スタート画面の「花火スキン」から選べます。',
-      colors:['#ffffff','#f4f9ff','#e8f2ff','#dbe8fa'] },
+      desc:'長岡花火が本編の前に上げる、慰霊の白一色の三尺玉。スタート画面の「花火スキン」から選べます。' },
 
     { id:'bg:shinano', kind:'bg', rank:'SR', weight:3, name:'信濃川',
-      desc:'玉が上がる河川敷の空。夜空が藍と碧に変わり、地平のルーラーが金になります。',
-      colors:['#ffd23f','#29f1ff','#7bdcff','#eaf6ff'] },
+      desc:'玉が上がる河川敷の空。夜空が藍と碧に変わり、地平のルーラーが金になります。' },
 
     { id:'trail:kinshi', kind:'trail', rank:'SR', weight:3, name:'金糸',
-      desc:'太く長い金の尾。飛んでいるあいだ、ずっと火の粉を落とし続けます。',
-      colors:['#fff6d8','#ffe08a','#ffd23f','#ffb14a'] },
+      desc:'太く長い金の尾。飛んでいるあいだ、ずっと火の粉を落とし続けます。' },
 
     // key は手持ちの保存先。スキップ券は高度、それ以外は名前を使う
     { id:'ticket:x2', kind:'ticket', rank:'R', weight:5, key:X2_KEY, name:'pt2倍券',
-      desc:'使った回にもらえるポイントが2倍になります。打ち上げる前に「使う」を選んでください。',
-      colors:['#29f1ff','#7bdcff','#a5b4fc','#e8fbff'] },
+      desc:'使った回にもらえるポイントが2倍になります。打ち上げる前に「使う」を選んでください。' },
 
-    { id:'ticket:2000', kind:'ticket', rank:'R', weight:18, m:2000, key:2000, name:'2000mスキップ券',
-      desc:'2000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
-      colors:['#7bdcff','#a5b4fc','#e8fbff','#5eead4'] },
+    { id:'ticket:2000', kind:'ticket', rank:'N', weight:18, m:2000, key:2000, name:'2000mスキップ券',
+      desc:'2000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。' },
 
     { id:'ticket:1000', kind:'ticket', rank:'N', weight:28, m:1000, key:1000, name:'1000mスキップ券',
-      desc:'1000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
-      colors:['#dbe4f5','#ffffff','#b8c6de','#eef2ff'] },
+      desc:'1000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。' },
 
     { id:'ticket:500', kind:'ticket', rank:'N', weight:41, m:500, key:500, name:'500mスキップ券',
-      desc:'500m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
-      colors:['#c9d4e8','#eef2ff','#a8b6d0','#ffffff'] }
+      desc:'500m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。' }
   ];
 
   // スキップ券の高度。ここに足せば手持ち欄とスタート高度の選択肢に自動で並ぶ
@@ -2305,8 +2299,20 @@
   const FX_SCALE = { N:{n:80,v:195,r:2.6}, R:{n:140,v:245,r:3.0},
                      SR:{n:220,v:295,r:3.4}, UR:{n:340,v:345,r:4.0} };
 
+  // 打ち上がる玉は何が当たっても薄い黄色で通す。レア度で色を変えると、
+  // 開く前に結果が読めてしまい、当てる楽しみが消える。
+  // 期待させるのは背景の花火（確定演出）ひとつだけにする
+  const FX_SHELL = '#fff3c4';
+  const FX_SHELL_BURST = ['#fffdf0','#fff8dc','#fff3c4','#ffe9a8'];
+
+  // 確定演出。SR 以上のときだけ、本命の後ろで小さな花火がいくつか開く。
+  // 出たら SR 以上が確定するが、必ず出るわけではない（出なくても望みはある）
+  const FX_CONFIRM_CHANCE = 0.6;
+  const FX_CONFIRM_COLORS = ['#ff2fb0','#29f1ff','#ffd23f','#7b2ff7','#5eead4','#ff6b6b'];
+
   let fxRunning = false, fxRaf = 0, fxT = 0, fxLast = 0;
   let fxEntry = null, fxParts = [], fxBurst = false, fxFlash = 0;
+  let fxBgParts = [], fxBgQueue = [];
 
   function sizeGachaCanvas(){
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -2321,7 +2327,9 @@
     if(fxBurst) return;
     fxBurst = true;
     const s = FX_SCALE[fxEntry.rank];
-    const cols = fxEntry.colors;
+    // 色はレア度に関係なく薄い黄色。規模と閃光だけがレア度で変わるが、
+    // これは開いた瞬間＝結果が分かる瞬間なので、事前の手掛かりにはならない
+    const cols = FX_SHELL_BURST;
     fxFlash = fxEntry.rank === 'UR' ? 1 : (fxEntry.rank === 'SR' ? 0.55 : 0.25);
     for(let i=0;i<s.n;i++){
       // 等分割の枠内で少しだけ散らす。ゲーム本編の菊と同じ考え方で、
@@ -2342,6 +2350,33 @@
     }
   }
 
+  // 確定演出の段取り。本命が上がりきる前に開き切るよう、打ち上げの前半へ寄せる
+  function fxQueueConfirm(){
+    const n = 3 + Math.floor(Math.random()*3); // 3〜5発
+    for(let i=0;i<n;i++){
+      fxBgQueue.push({
+        at: 0.12 + i*0.2 + Math.random()*0.1,
+        x: 70 + Math.random()*(GAME_W-140),
+        // 本命が開く高さ(FX_BURST_Y)より散らして、手前と奥が重ならないようにする
+        y: 90 + Math.random()*(GAME_H*0.42)
+      });
+    }
+  }
+
+  function fxSpawnBg(x, y){
+    const n = 34 + Math.floor(Math.random()*18);
+    for(let i=0;i<n;i++){
+      const a = ((i + 0.5 + (Math.random()-0.5)*0.9) / n) * Math.PI*2;
+      const sp = 95 + Math.random()*55;
+      fxBgParts.push({
+        x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp,
+        r:0.9 + Math.random()*1.1,
+        life:1.1 + Math.random()*0.9, maxLife:2.0,
+        color:FX_CONFIRM_COLORS[Math.floor(Math.random()*FX_CONFIRM_COLORS.length)]
+      });
+    }
+  }
+
   function fxFrame(ts){
     if(!fxRunning) return;
     const dt = Math.min(0.05, (ts - fxLast)/1000 || 0);
@@ -2349,7 +2384,26 @@
     fxT += dt;
 
     gctx.clearRect(0, 0, GAME_W, GAME_H);
-    const rankCol = RANKS[fxEntry.rank].color;
+
+    // ---- 背景の花火（確定演出）。本命より先に描いて奥に置く ----
+    while(fxBgQueue.length && fxT >= fxBgQueue[0].at){
+      const shot = fxBgQueue.shift();
+      fxSpawnBg(shot.x, shot.y);
+    }
+    for(let i=fxBgParts.length-1;i>=0;i--){
+      const p = fxBgParts[i];
+      p.vx -= p.vx * 1.6 * dt;
+      p.vy -= p.vy * 1.6 * dt;
+      p.vy += 70 * dt;
+      p.x += p.vx*dt; p.y += p.vy*dt;
+      p.life -= dt;
+      if(p.life <= 0){ fxBgParts.splice(i,1); continue; }
+      // 遠くで上がっている体なので、本命より小さく淡く
+      gctx.globalAlpha = Math.min(1, p.life / (p.maxLife*0.5)) * 0.55;
+      const size = p.r * 4;
+      gctx.drawImage(glowSprite(p.color), p.x - size/2, p.y - size/2, size, size);
+    }
+    gctx.globalAlpha = 1;
 
     if(fxT < FX_RISE){
       // 打ち上げ。上がるほど減速して、開く直前に一拍ためる
@@ -2359,12 +2413,13 @@
       const tail = 90 + 80*(1-p);
 
       const g = gctx.createLinearGradient(0, y, 0, y + tail);
-      g.addColorStop(0, rankCol);
+      g.addColorStop(0, FX_SHELL);
       g.addColorStop(1, 'rgba(0,0,0,0)');
       gctx.save();
       gctx.globalAlpha = 0.85;
       gctx.strokeStyle = g;
-      gctx.lineWidth = 4 + (FX_SCALE[fxEntry.rank].r - 2.4);
+      // 太さもレア度で変えない。色と同じく、開く前の手掛かりになってしまう
+      gctx.lineWidth = 5;
       gctx.lineCap = 'round';
       gctx.beginPath();
       gctx.moveTo(GAME_W/2, y);
@@ -2372,7 +2427,7 @@
       gctx.stroke();
       gctx.globalAlpha = 1;
       gctx.shadowBlur = 22;
-      gctx.shadowColor = rankCol;
+      gctx.shadowColor = FX_SHELL;
       gctx.fillStyle = '#fff';
       gctx.beginPath();
       gctx.arc(GAME_W/2, y, 5.5, 0, Math.PI*2);
@@ -2425,6 +2480,12 @@
   function startFx(entry){
     fxEntry = entry;
     fxParts = [];
+    fxBgParts = [];
+    fxBgQueue = [];
+    // 確定演出は SR 以上のときだけ仕込む。ここが唯一「開く前に分かる」手掛かり
+    if((entry.rank === 'SR' || entry.rank === 'UR') && Math.random() < FX_CONFIRM_CHANCE){
+      fxQueueConfirm();
+    }
     fxBurst = false;
     fxFlash = 0;
     fxT = 0;
@@ -2445,6 +2506,8 @@
     fxRaf = 0;
     fxRunning = false;
     fxParts = [];
+    fxBgParts = [];
+    fxBgQueue = [];
     gachaFx.classList.add('hidden');
     gachaCard.classList.add('hidden');
     if(silent) return;
@@ -2466,6 +2529,9 @@
   gachaFx.addEventListener('click', () => {
     if(!fxRunning) return;
     if(gachaCard.classList.contains('hidden')){
+      // 未発射の背景花火を捨ててから飛ばす。残したままだと、時刻を進めた
+      // 拍子に全部まとめて開いて画面が埋まる
+      fxBgQueue = [];
       fxT = FX_RISE + FX_CARD;
       fxBurstNow();
       showFxCard();
