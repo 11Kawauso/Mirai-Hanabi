@@ -148,6 +148,8 @@
   const resultPt = document.getElementById('result-pt');
   const skipBlocks = [...document.querySelectorAll('[data-skip-block]')];
   const skipRows = [...document.querySelectorAll('[data-skip-picker]')];
+  const skipSubs = [...document.querySelectorAll('[data-skip-sub]')];
+  const x2Buttons = [...document.querySelectorAll('[data-x2-toggle]')];
   const ptBadges = [...document.querySelectorAll('[data-pt-badge]')];
 
   // ---- saved data ----------------------------------------------------------
@@ -197,7 +199,10 @@
   const owned = new Set(Array.isArray(loadJSON(STORE_OWNED, [])) ? loadJSON(STORE_OWNED, []) : []);
   const tickets = loadJSON(STORE_TICKET, {});
   const has = (id) => owned.has(id);
-  const ticketCount = (m) => Math.max(0, parseInt(tickets[m], 10) || 0);
+  // 券の枚数は一つの入れ物にまとめてある。スキップ券は高度そのものを鍵にし、
+  // 高度を持たない券は名前を鍵にする
+  const X2_KEY = 'x2';
+  const ticketCount = (k) => Math.max(0, parseInt(tickets[k], 10) || 0);
 
   function saveOwned(){ save(STORE_OWNED, JSON.stringify([...owned])); }
   function saveTickets(){ save(STORE_TICKET, JSON.stringify(tickets)); }
@@ -705,7 +710,8 @@
 
   let state = 'start'; // start | playing | exploding | result
   let heightM = 0;
-  let runStartM = 0;   // スキップ券で飛ばした分。記録はここからの差で数える
+  let runStartM = 0;   // スキップ券で飛ばした分。ポイントはここからの差で数える
+  let runX2 = false;   // この回に pt2倍券を使ったか
   // 砲口の蹴り(boost)だけを進める時計。難易度の elapsed とは別で、
   // 券で空中から始めたときは最初から使い切った状態にして蹴りを消す
   let boostTime = 0;
@@ -853,8 +859,9 @@
     return (-b + Math.sqrt(b*b - 4*a*c)) / (2*a);
   }
 
-  function reset(startM){
+  function reset(startM, useX2){
     const from = Math.max(0, startM || 0);
+    runX2 = !!useX2;
     // 券で飛んだ先は空の途中で、そこに砲台は無い。砲口から上がる芝居を
     // 挟まず、いきなり飛行中から始める
     state = from > 0 ? 'playing' : 'launching';
@@ -1135,12 +1142,13 @@
 
     // ポイントは自力で飛んだぶんだけ。券で貰った高度は数えないので、
     // 券を回し続けても問屋のポイントは増えない。
-    // 自己ベストではなく毎回の飛距離から出すので、失敗した回でも貯まる
-    const gained = Math.floor(flownM / PT_PER_M);
+    // 自己ベストではなく毎回の飛距離から出すので、失敗した回でも貯まる。
+    // 2倍券は端数を切り捨てたあとに掛ける（先に掛けると 150m が 3pt になる）
+    const gained = Math.floor(flownM / PT_PER_M) * (runX2 ? 2 : 1);
     if(gained > 0){
       addPoints(gained);
       // 自己ベストと同じ行に並ぶので短く。総額は真下の問屋ボタンにも出ている
-      resultPt.textContent = `問屋 +${gained}pt（${gachaPt}pt）`;
+      resultPt.textContent = `問屋 ${runX2 ? '×2 ' : ''}+${gained}pt（${gachaPt}pt）`;
       resultPt.classList.remove('hidden');
     } else {
       resultPt.classList.add('hidden');
@@ -2102,20 +2110,25 @@
       desc:'太く長い金の尾。飛んでいるあいだ、ずっと火の粉を落とし続けます。',
       colors:['#fff6d8','#ffe08a','#ffd23f','#ffb14a'] },
 
-    { id:'ticket:2000', kind:'ticket', rank:'R', weight:20, m:2000, name:'2000mスキップ券',
+    // key は手持ちの保存先。スキップ券は高度、それ以外は名前を使う
+    { id:'ticket:x2', kind:'ticket', rank:'R', weight:5, key:X2_KEY, name:'pt2倍券',
+      desc:'使った回にもらえるポイントが2倍になります。打ち上げる前に「使う」を選んでください。',
+      colors:['#29f1ff','#7bdcff','#a5b4fc','#e8fbff'] },
+
+    { id:'ticket:2000', kind:'ticket', rank:'R', weight:18, m:2000, key:2000, name:'2000mスキップ券',
       desc:'2000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
       colors:['#7bdcff','#a5b4fc','#e8fbff','#5eead4'] },
 
-    { id:'ticket:1000', kind:'ticket', rank:'N', weight:30, m:1000, name:'1000mスキップ券',
+    { id:'ticket:1000', kind:'ticket', rank:'N', weight:28, m:1000, key:1000, name:'1000mスキップ券',
       desc:'1000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
       colors:['#dbe4f5','#ffffff','#b8c6de','#eef2ff'] },
 
-    { id:'ticket:500', kind:'ticket', rank:'N', weight:42, m:500, name:'500mスキップ券',
+    { id:'ticket:500', kind:'ticket', rank:'N', weight:41, m:500, key:500, name:'500mスキップ券',
       desc:'500m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。',
       colors:['#c9d4e8','#eef2ff','#a8b6d0','#ffffff'] }
   ];
 
-  // 券の種類。ここに足せば手持ち欄とスタート高度の選択肢に自動で並ぶ
+  // スキップ券の高度。ここに足せば手持ち欄とスタート高度の選択肢に自動で並ぶ
   const TICKET_M = [500, 1000, 2000];
 
   const isPrize = (e) => e.kind !== 'ticket';
@@ -2138,7 +2151,7 @@
     save(STORE_PITY, String(pityCount));
 
     if(hit.kind === 'ticket'){
-      tickets[hit.m] = ticketCount(hit.m) + 1;
+      tickets[hit.key] = ticketCount(hit.key) + 1;
       saveTickets();
     } else {
       owned.add(hit.id);
@@ -2235,11 +2248,12 @@
       }));
     }
     stockTicket.textContent = '';
-    for(const m of TICKET_M){
-      const n = ticketCount(m);
+    for(const t of [...TICKET_M.map(m => ({ key:m, label:`${m}m` })),
+                    { key:X2_KEY, label:'pt2倍' }]){
+      const n = ticketCount(t.key);
       const el = document.createElement('span');
       el.className = 'stock-ticket' + (n ? '' : ' zero');
-      el.textContent = `${m}m ×${n}`;
+      el.textContent = `${t.label} ×${n}`;
       stockTicket.appendChild(el);
     }
   }
@@ -2462,14 +2476,18 @@
     endFx(false);
   });
 
-  // ---- skip tickets ---------------------------------------------------------
-  let pendingSkip = 0; // 次の打ち上げで使う券。使った瞬間に 0 へ戻る
+  // ---- 券を使う ---------------------------------------------------------------
+  let pendingSkip = 0;     // 次の打ち上げで使うスキップ券。使った瞬間に 0 へ戻る
+  let pendingX2 = false;   // pt2倍券を使うか。同じく打ち上げで false へ戻る
 
   function renderSkipPickers(){
     const owns = TICKET_M.filter(m => ticketCount(m) > 0);
     if(pendingSkip && ticketCount(pendingSkip) <= 0) pendingSkip = 0;
-    // 券を1枚も持っていないなら、選ぶものが無いので枠ごと隠す
-    for(const b of skipBlocks) b.classList.toggle('hidden', owns.length === 0);
+    // 券を1枚も持っていないなら、選ぶものが無いので枠ごと隠す。
+    // 2倍券だけ持っている場合は枠は残し、高度の選択肢だけを畳む
+    const anyTicket = owns.length > 0 || ticketCount(X2_KEY) > 0;
+    for(const b of skipBlocks) b.classList.toggle('hidden', !anyTicket);
+    for(const s of skipSubs) s.classList.toggle('hidden', owns.length === 0);
     for(const row of skipRows){
       row.textContent = '';
       for(const m of [0, ...owns]){
@@ -2481,19 +2499,37 @@
         row.appendChild(b);
       }
     }
+    renderX2Pickers();
+  }
+
+  function renderX2Pickers(){
+    const n = ticketCount(X2_KEY);
+    if(n <= 0) pendingX2 = false;
+    for(const b of x2Buttons){
+      b.className = 'skip-btn x2-btn' + (n <= 0 ? ' hidden' : '') + (pendingX2 ? ' on' : '');
+      b.textContent = (pendingX2 ? 'pt2倍で打ち上げ' : 'pt2倍券を使う') + ` ×${n}`;
+      b.setAttribute('aria-pressed', String(pendingX2));
+    }
   }
 
   // 券は打ち上げた瞬間に1枚減る。結果画面まで持ち越さないので、
-  // 途中でリロードされても「使ったのに残っている」ことにはならない
+  // 途中でリロードされても「使ったのに残っている」ことにはならない。
+  // 2倍券は高度に関係なく効くので、スキップ券と重ねて使える
   function launch(){
     let from = 0;
     if(pendingSkip && ticketCount(pendingSkip) > 0){
       from = pendingSkip;
       tickets[from] = ticketCount(from) - 1;
-      saveTickets();
       pendingSkip = 0;
     }
-    reset(from);
+    let x2 = false;
+    if(pendingX2 && ticketCount(X2_KEY) > 0){
+      x2 = true;
+      tickets[X2_KEY] = ticketCount(X2_KEY) - 1;
+      pendingX2 = false;
+    }
+    saveTickets();
+    reset(from, x2);
   }
 
   // ---- on-screen pad --------------------------------------------------------
@@ -2686,6 +2722,10 @@
   // 画面を広げたら常駐表示に戻るので、引き出しの状態は捨てる
   panelMQ.addEventListener('change', () => { setPanel(null); syncPanelA11y(); });
   syncPanelA11y();
+
+  for(const b of x2Buttons){
+    b.addEventListener('click', () => { pendingX2 = !pendingX2; renderX2Pickers(); });
+  }
 
   startBtn.addEventListener('click', launch);
   retryBtn.addEventListener('click', launch);

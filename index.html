@@ -85,7 +85,7 @@
         <li>1回の打ち上げで、<b>自力で飛んだ100mごとに1pt</b>たまります</li>
         <li><b>50pt</b>で1回引けます。スタート画面／結果画面の「花火問屋」から</li>
         <li>目玉は<b>限定の花火スキン・背景・トレイル</b>の3つ。どれも低確率です</li>
-        <li>目玉が出ない回は<b>500m／1000m／2000mのスキップ券</b>が出ます</li>
+        <li>目玉が出ない回は<b>スキップ券</b>（500m／1000m／2000m）か<b>pt2倍券</b>が出ます</li>
         <li><b>25回</b>引いても目玉が出なければ、次は目玉が確定で出ます</li>
       </ul>
       <p class="g-body">
@@ -95,6 +95,11 @@
       <p class="g-body">
         ただし<b>ポイントだけは自力で飛んだぶんから</b>計算します。券で貰った高度は数えないので、
         券を使い続けても次のガチャが早くなることはありません。
+      </p>
+      <p class="g-body">
+        <b>pt2倍券</b>は、その回にもらえるポイントが2倍になる券です。打ち上げる前にボタンで「使う」を選んでください。
+        スキップ券と<b>重ねて使えます</b>。どちらの券も<b>打ち上げた瞬間に1枚減る</b>ので、
+        すぐ落ちてしまっても戻ってこない点だけ注意してください。
       </p>
     </section>
 
@@ -157,8 +162,13 @@
 
       <!-- 券を1枚も持っていない間は丸ごと隠す。script.js が出し入れする -->
       <div class="skip-block hidden" data-skip-block>
-        <p class="skin-label">スタート高度</p>
-        <div class="skip-row" data-skip-picker></div>
+        <!-- スキップ券が0枚でも 2倍券だけ持っていることがあるので、
+             高度の選択肢は中でさらに出し分ける -->
+        <div data-skip-sub>
+          <p class="skin-label">スタート高度</p>
+          <div class="skip-row" data-skip-picker></div>
+        </div>
+        <button class="skip-btn x2-btn hidden" type="button" data-x2-toggle aria-pressed="false"></button>
       </div>
 
       <div class="skin-block">
@@ -190,8 +200,13 @@
 
       <!-- リトライはスタート画面を経由しないので、ここにも選択肢を置く -->
       <div class="skip-block hidden" data-skip-block>
-        <p class="skin-label">スタート高度</p>
-        <div class="skip-row" data-skip-picker></div>
+        <!-- スキップ券が0枚でも 2倍券だけ持っていることがあるので、
+             高度の選択肢は中でさらに出し分ける -->
+        <div data-skip-sub>
+          <p class="skin-label">スタート高度</p>
+          <div class="skip-row" data-skip-picker></div>
+        </div>
+        <button class="skip-btn x2-btn hidden" type="button" data-x2-toggle aria-pressed="false"></button>
       </div>
 
       <div class="skin-block">

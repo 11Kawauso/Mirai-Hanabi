@@ -149,9 +149,12 @@ canvas{
 }
 .btn:active{ transform:translateY(1px); }
 .howto{
-  margin:calc(16 * var(--u)) 0 0; font-size:11px; color:rgba(238,242,255,0.5);
-  line-height:1.55;
+  margin:calc(12 * var(--u)) 0 0; font-size:11px; color:rgba(238,242,255,0.5);
+  line-height:1.5;
 }
+/* 盤がとても低い端末では操作の説明を畳む。同じ内容は説明パネルにもあるので
+   失われる情報は無く、券が増えたぶんの高さをここで返す */
+@media (max-height:560px){ .howto{ display:none; } }
 /* 以下は既定の p マージン（1em = 文字サイズぶん）が効くと、大きい数字の上に
    52px も空いてしまう。全部そろえて明示する */
 .result-big{
@@ -267,6 +270,20 @@ canvas{
   background:linear-gradient(90deg, var(--cyan), #7bdcff);
   border-color:transparent;
   box-shadow:0 0 14px -2px rgba(41,241,255,0.7);
+}
+
+/* pt2倍券。スタート高度と同じ「打ち上げ前に決める券」なので同じ枠に置くが、
+   選択肢ではなく入り切りなので一つのボタンで切り替える */
+.x2-btn{
+  margin-top:max(5px, calc(7 * var(--u)));
+  font-weight:800;
+}
+.x2-btn.hidden{ display:none; }
+/* 高度の選択肢だけを畳む（2倍券しか持っていないとき） */
+[data-skip-sub].hidden{ display:none; }
+.x2-btn.on{
+  background:linear-gradient(90deg, var(--gold), #ff8a3d);
+  box-shadow:0 0 14px -2px rgba(255,210,63,0.75);
 }
 
 /* ---- 花火問屋を開くボタン ---- */
