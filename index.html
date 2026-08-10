@@ -143,9 +143,10 @@
       </div>
 
       <div class="skin-block">
-        <p class="skin-label">花火スキン</p>
+        <!-- 選択中の名前はラベルに畳んである。1行分の高さが浮くので、
+             盤が小さい端末でもスクロールを出さずに済む -->
+        <p class="skin-label">花火スキン<b class="skin-name" data-skin-name></b></p>
         <div class="skin-row" data-skin-picker></div>
-        <p class="skin-name" data-skin-name></p>
       </div>
 
       <button class="btn btn-sub" id="gacha-open" type="button">
@@ -160,8 +161,11 @@
       <p class="result-num" id="result-height">0m</p>
       <!-- スキップ券を使った回だけ出る。記録は「飛んだ分」なので内訳を見せる -->
       <p class="result-split hidden" id="result-split"></p>
-      <p class="result-best" id="result-best">自己ベスト 0m</p>
-      <p class="result-pt hidden" id="result-pt"></p>
+      <!-- 自己ベストと獲得ポイントは同じ「今回のまとめ」なので1行に畳む -->
+      <p class="result-meta">
+        <span id="result-best">自己ベスト 0m</span>
+        <span class="result-pt hidden" id="result-pt"></span>
+      </p>
       <p class="skin-unlock hidden" id="skin-unlock"></p>
       <button class="btn" id="retry-btn">もう一度打ち上げる</button>
 
@@ -172,9 +176,8 @@
       </div>
 
       <div class="skin-block">
-        <p class="skin-label">花火スキン</p>
+        <p class="skin-label">花火スキン<b class="skin-name" data-skin-name></b></p>
         <div class="skin-row" data-skin-picker></div>
-        <p class="skin-name" data-skin-name></p>
       </div>
 
       <button class="btn btn-sub" id="gacha-open-2" type="button">

@@ -1131,7 +1131,8 @@
     const gained = Math.floor(scoreM / PT_PER_M);
     if(gained > 0){
       addPoints(gained);
-      resultPt.textContent = `花火問屋のポイント +${gained}pt（所持 ${gachaPt}pt）`;
+      // 自己ベストと同じ行に並ぶので短く。総額は真下の問屋ボタンにも出ている
+      resultPt.textContent = `問屋 +${gained}pt（${gachaPt}pt）`;
       resultPt.classList.remove('hidden');
     } else {
       resultPt.classList.add('hidden');

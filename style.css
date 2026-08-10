@@ -57,6 +57,11 @@ html,body{
   flex:0 0 auto;
   width:var(--board-w);
   aspect-ratio:480/800;
+  /* ゲーム内 1px 分の実寸。盤が 480px のとき 1px、狭い端末ではそれ未満になる。
+     スタート／リザルトの余白と大きい文字にこれを掛けておくと、盤が縮んでも
+     中身が同じ割合で縮み、スクロールが出ない。
+     長さ ÷ 数 なので有効な calc（数 ÷ 長さ は使えない） */
+  --u:calc(var(--board-w) / 480);
   /* ドラッグ操作をブラウザのスクロール/ズームに横取りさせない */
   touch-action:none;
   border-radius:14px;
@@ -107,19 +112,23 @@ canvas{
   /* HUD やゲーム内レイヤーより必ず手前に。ボタンが覆われて押せなくなるのを防ぐ */
   z-index:10;
   display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
-  text-align:center; padding:32px;
-  /* 盤が低い端末だと中身が入り切らない。justify-content:center のままだと
-     はみ出した分が上へ抜けてスクロールでも追えなくなるので、上下に
-     margin:auto の空要素を挟んで「余っていれば中央、足りなければ素直に上から」
-     にしてある */
+  /* 左右も縮める。幅が広がるぶんスキン列や券のボタンの折り返しが減り、
+     縦にも効く */
+  text-align:center; padding:calc(24 * var(--u)) max(12px, calc(20 * var(--u)));
+  /* 上下に margin:auto の空要素を挟んで「余っていれば中央、足りなければ上から」。
+     万一はみ出しても、まず読みたい上側から残る */
   overflow-y:auto;
   background:radial-gradient(ellipse at 50% 30%, rgba(123,47,247,0.28), rgba(5,4,15,0.86) 70%);
   backdrop-filter:blur(2px);
 }
 .overlay::before, .overlay::after{ content:''; margin:auto; flex:0 0 auto; }
 .overlay.hidden{display:none;}
+/* この2枚は盤に収めきる。花火の前にスクロールバーが出ると興が削がれるので、
+   中身の側を縮めて（--u）はみ出させない */
+#start-screen, #result-screen{ overflow:hidden; }
 .title{
-  font-size:34px; font-weight:900; letter-spacing:0.06em;
+  font-size:clamp(22px, calc(34 * var(--u)), 34px);
+  font-weight:900; letter-spacing:0.06em;
   background:linear-gradient(90deg, var(--pink), var(--cyan));
   -webkit-background-clip:text; background-clip:text; color:transparent;
   text-shadow:0 0 30px rgba(255,47,176,0.35);
@@ -128,11 +137,11 @@ canvas{
 .subtitle{
   font-size:13px; color:rgba(238,242,255,0.75);
   letter-spacing:0.05em;
-  margin:0 0 28px;
+  margin:0 0 calc(24 * var(--u));
 }
 .btn{
   appearance:none; border:none; cursor:pointer;
-  padding:14px 34px; border-radius:999px;
+  padding:max(9px, calc(14 * var(--u))) 34px; border-radius:999px;
   font-size:15px; font-weight:800; letter-spacing:0.08em;
   color:var(--ink);
   background:linear-gradient(90deg, var(--cyan), var(--pink));
@@ -140,36 +149,49 @@ canvas{
 }
 .btn:active{ transform:translateY(1px); }
 .howto{
-  margin-top:22px; font-size:11px; color:rgba(238,242,255,0.5);
-  line-height:1.7;
+  margin:calc(16 * var(--u)) 0 0; font-size:11px; color:rgba(238,242,255,0.5);
+  line-height:1.55;
 }
+/* 以下は既定の p マージン（1em = 文字サイズぶん）が効くと、大きい数字の上に
+   52px も空いてしまう。全部そろえて明示する */
 .result-big{
-  font-size:13px; color:rgba(238,242,255,0.6); letter-spacing:0.1em; margin-bottom:2px;
+  font-size:13px; color:rgba(238,242,255,0.6); letter-spacing:0.1em;
+  margin:0 0 2px;
 }
 .result-num{
-  font-size:52px; font-weight:900; color:#fff;
+  font-size:clamp(27px, calc(52 * var(--u)), 52px);
+  font-weight:900; color:#fff;
+  /* 既定の行送りだと 52px の文字の上下に 15px ずつ空きができて、
+     数字だけ妙に浮いて見える。詰めるとリザルト全体も 30px ほど縮む */
+  line-height:1.1;
   text-shadow:0 0 24px rgba(255,47,176,0.6);
-  margin-bottom:18px;
+  margin:0 0 calc(12 * var(--u));
 }
-.result-best{
-  font-size:13px; color:var(--gold); margin-bottom:22px;
+/* 自己ベストと獲得ポイントの1行。狭ければ2行に折り返す */
+.result-meta{
+  margin:0 0 calc(14 * var(--u));
+  display:flex; flex-wrap:wrap; justify-content:center;
+  column-gap:12px; row-gap:2px;
+  font-size:13px; color:var(--gold);
 }
 
 /* ---- スキン選択 ---- */
-.skin-block{ margin-top:20px; }
+.skin-block{ margin-top:calc(14 * var(--u)); }
 .skin-label{
-  margin:0 0 8px;
+  margin:0 0 max(5px, calc(8 * var(--u)));
   font-size:10px; letter-spacing:0.16em;
   color:rgba(238,242,255,0.45);
 }
 /* 11個あるので折り返す。狭い盤では2段になる */
 .skin-row{
-  display:flex; justify-content:center; flex-wrap:wrap; gap:8px;
+  display:flex; justify-content:center; flex-wrap:wrap; gap:max(5px, calc(8 * var(--u)));
   max-width:100%;
 }
 .skin-dot{
   appearance:none; cursor:pointer;
-  width:30px; height:30px; padding:0;
+  /* 指で押せる下限は割らない。ここだけは盤に比例させて小さくしすぎない */
+  width:max(24px, calc(30 * var(--u))); height:max(24px, calc(30 * var(--u)));
+  padding:0;
   border-radius:50%;
   border:2px solid transparent;
   background:radial-gradient(circle at 38% 34%, var(--core) 0 26%, var(--glow) 62%, rgba(0,0,0,0.55) 100%);
@@ -198,13 +220,14 @@ canvas{
   box-shadow:none;
   color:rgba(238,242,255,0.5);
 }
+/* ラベルに同居させた選択中の名前。ラベルの字間をそのまま継ぐと間延びする */
 .skin-name{
-  margin:9px 0 0;
-  font-size:11px; font-weight:700;
-  color:rgba(238,242,255,0.8);
+  margin-left:8px;
+  font-size:11px; font-weight:800; letter-spacing:0.02em;
+  color:rgba(238,242,255,0.9);
 }
 .skin-unlock{
-  margin:0 0 16px;
+  margin:0 0 calc(12 * var(--u));
   padding:7px 16px;
   border-radius:999px;
   border:1px solid rgba(255,210,63,0.45);
@@ -216,22 +239,24 @@ canvas{
 
 /* 券を使った回の内訳と、貰ったポイント */
 .result-split{
-  margin:0 0 8px;
+  margin:0 0 calc(6 * var(--u));
   font-size:11px; color:rgba(238,242,255,0.6);
 }
 .result-pt{
-  margin:0 0 16px;
-  font-size:11px; font-weight:700; color:var(--cyan);
+  font-size:13px; font-weight:700; color:var(--cyan);
 }
 .result-split.hidden, .result-pt.hidden{ display:none; }
 
 /* ---- スタート高度（スキップ券） ---- */
-.skip-block{ margin-top:18px; }
+.skip-block{ margin-top:calc(14 * var(--u)); }
 .skip-block.hidden{ display:none; }
-.skip-row{ display:flex; justify-content:center; flex-wrap:wrap; gap:6px; }
+/* 券が増えると 2〜3 段に折り返す。狭い盤ではここが一番かさむので、
+   余白は盤の縮尺に連れて詰める */
+.skip-row{ display:flex; justify-content:center; flex-wrap:wrap; gap:max(4px, calc(6 * var(--u))); }
 .skip-btn{
   appearance:none; cursor:pointer;
-  padding:7px 14px; border-radius:999px;
+  padding:max(5px, calc(7 * var(--u))) max(10px, calc(14 * var(--u)));
+  border-radius:999px;
   font-family:inherit; font-size:11px; font-weight:700;
   color:rgba(238,242,255,0.75);
   background:rgba(238,242,255,0.06);
@@ -246,8 +271,8 @@ canvas{
 
 /* ---- 花火問屋を開くボタン ---- */
 .btn-sub{
-  margin-top:18px;
-  padding:10px 22px;
+  margin-top:calc(14 * var(--u));
+  padding:max(7px, calc(10 * var(--u))) 22px;
   font-size:12px;
   color:var(--gold);
   background:rgba(255,210,63,0.1);
