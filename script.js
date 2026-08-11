@@ -184,6 +184,24 @@
   const GACHA_COST = 50;    // 1回の値段 = 5,000m ぶん
   const PITY_MAX   = 25;    // これだけ外し続けたら次は目玉が確定で出る
 
+  // 高度ボーナス。高く飛んだ回ほどポイントの倍率が上がる。
+  // 上から順に見て最初に届いた段を採る（降順に並べておくこと）。
+  // 判定に使うのは「自力で飛んだ距離」。到達高度で見ると、スキップ券で
+  // 貰った高度のぶんだけ倍率が上がってしまい、
+  // 「ポイントは自力で飛んだぶんだけ」という決めごとが崩れる
+  const HEIGHT_BONUS = [
+    { m:30000, mult:3.0 },
+    { m:20000, mult:2.2 },
+    { m:15000, mult:1.8 },
+    { m:10000, mult:1.5 },
+    { m:5000,  mult:1.2 },
+    { m:3000,  mult:1.1 }
+  ];
+  function heightBonus(m){
+    for(const t of HEIGHT_BONUS) if(m >= t.m) return t.mult;
+    return 1;
+  }
+
   let gachaPt = Math.max(0, parseInt(load(STORE_PT, '0'), 10) || 0);
   let pityCount = Math.max(0, parseInt(load(STORE_PITY, '0'), 10) || 0);
 
@@ -1143,12 +1161,18 @@
     // ポイントは自力で飛んだぶんだけ。券で貰った高度は数えないので、
     // 券を回し続けても問屋のポイントは増えない。
     // 自己ベストではなく毎回の飛距離から出すので、失敗した回でも貯まる。
-    // 2倍券は端数を切り捨てたあとに掛ける（先に掛けると 150m が 3pt になる）
-    const gained = Math.floor(flownM / PT_PER_M) * (runX2 ? 2 : 1);
+    // 掛ける順は 素点 → 高度ボーナス → 切り捨て → 2倍券。先に2倍してから
+    // 切り捨てると、端数の扱いで 2倍券が損をする回が出る
+    const mult = heightBonus(flownM);
+    let gained = Math.floor(Math.floor(flownM / PT_PER_M) * mult);
+    if(runX2) gained *= 2;
     if(gained > 0){
       addPoints(gained);
-      // 自己ベストと同じ行に並ぶので短く。総額は真下の問屋ボタンにも出ている
-      resultPt.textContent = `問屋 ${runX2 ? '×2 ' : ''}+${gained}pt（${gachaPt}pt）`;
+      // 自己ベストと同じ行に並ぶので短く。倍率が二つ付くと総額まで載らないので
+      // 所持ポイントは書かない（真下の問屋ボタンに大きく出ている）。
+      // 3.0 が「×3」になると説明パネルの表と食い違うので、小数第1位で揃える
+      const tags = (mult > 1 ? `×${mult.toFixed(1)}` : '') + (runX2 ? '×2' : '');
+      resultPt.textContent = `問屋 ${tags ? tags + ' ' : ''}+${gained}pt`;
       resultPt.classList.remove('hidden');
     } else {
       resultPt.classList.add('hidden');
