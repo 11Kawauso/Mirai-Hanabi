@@ -101,6 +101,9 @@
   const GRID_RISE_TO = 6000;   // ここで上がり切る
 
   // 尾に座標を刻む間隔(秒)。粗いほど区間は減るが、trail×これが尾の「長さ(秒)」
+  // 尾のグラデーションを作っておくローカル座標の長さ。噴射が抜けた平常時の
+  // 長さに合わせてあるので、飛んでいる間はほぼ等倍で当たる
+  const TAIL_BASE = 14;
   const TAIL_STEP = 0.05;
   let burstTailStep = TAIL_STEP; // 玉ごとに刻み幅を変える
 
@@ -695,8 +698,12 @@
   };
   let bgId = String(load(STORE_BG, 'default'));
   let trailId = String(load(STORE_TRAIL, 'default'));
-  function background(){ return ownedGear(BACKGROUNDS, bgId); }
-  function trail(){ return ownedGear(TRAILS, trailId); }
+  // 描画中に何度も呼ばれる。中の find は毎回クロージャを作るので、
+  // 装備が変わるまでは結果を持ち回す。着せ替えたら gearChanged() で捨てる
+  let bgCache = null, trailCache = null;
+  function background(){ return bgCache || (bgCache = ownedGear(BACKGROUNDS, bgId)); }
+  function trail(){ return trailCache || (trailCache = ownedGear(TRAILS, trailId)); }
+  function gearChanged(){ bgCache = trailCache = null; skyCur = null; }
 
   function lerp(a,b,t){ return a + (b-a)*t; }
   function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
@@ -712,6 +719,10 @@
     const bl = Math.round(lerp(a[2],b[2],t));
     return `rgb(${r},${g},${bl})`;
   }
+  // 毎フレーム2回（空と背景）呼ばれる。そのたびに入れ物を作ると、
+  // 小さくても 60fps ぶん積み上がって GC を呼ぶので使い回す。
+  // 返り値はすぐ読み切る前提（呼び出し側で溜め込まないこと）
+  const stageOut = { cur:null, next:null, t:1 };
   function getStage(heightM){
     const STAGES = background().stages;
     let cur = STAGES[0], next = STAGES[STAGES.length-1], t = 1;
@@ -723,11 +734,13 @@
         t = Math.min(1, (heightM - cur.minH) / range);
       }
     }
-    return { cur, next, t };
+    stageOut.cur = cur; stageOut.next = next; stageOut.t = t;
+    return stageOut;
   }
 
   let state = 'start'; // start | playing | exploding | result
   let heightM = 0;
+  let hudShownM = -1;  // HUD に今出ている整数メートル。変わったときだけ書き換える
   let runStartM = 0;   // スキップ券で飛ばした分。ポイントはここからの差で数える
   let runX2 = false;   // この回に pt2倍券を使ったか
   // 砲口の蹴り(boost)だけを進める時計。難易度の elapsed とは別で、
@@ -778,6 +791,14 @@
   for(let i=0;i<70;i++){
     stars.push({ x: Math.random()*GAME_W, y: Math.random()*GAME_H, r: Math.random()*1.6+0.4, tw: Math.random()*6.28 });
   }
+  // 瞬きの濃さをまとめる段数と、その計算結果を置く場所。毎フレーム配列を
+  // 作らないよう、長さを決めて一度だけ確保しておく
+  const STAR_BANDS = 8;
+  const starBand = new Uint8Array(stars.length);
+
+  // 地上の街並み。中身は変わらないので毎フレーム作らない
+  const buildings = [75,150,105,215,120,175,90,235,110,160];
+  const BUILDING_MAX_H = Math.max(...buildings);
 
   // streaks that rush past during the boost — the only thing that actually sells
   // speed, since the shot itself is pinned to a fixed height on screen
@@ -922,7 +943,8 @@
     windDebrisTimer = 0.4;
     scatterSpeedLines();
     scatterWindStreaks();
-    hudHeight.textContent = Math.floor(from) + 'm'; // else the previous run's height lingers through the launch animation
+    hudShownM = Math.floor(from);
+    hudHeight.textContent = hudShownM + 'm'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
     resultScreen.classList.add('hidden');
     if(from === 0) spawnMuzzleFlash(); // 空中スタートに砲口の火花は出ない
@@ -1261,7 +1283,13 @@
       // speed increases very gradually with time survived, not with height directly
       scrollSpeed = Math.min(SCROLL_CAP, SCROLL_BASE + elapsed*SCROLL_RATE) + boost*BOOST_EXTRA;
       heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
-      hudHeight.textContent = Math.floor(heightM) + 'm';
+      // 表示は整数メートル。低速なら 1 秒に 20 回ほどしか変わらないのに、
+      // 毎フレーム書き込むと文字列と DOM 更新をそのぶん捨てることになる
+      const shown = Math.floor(heightM);
+      if(shown !== hudShownM){
+        hudShownM = shown;
+        hudHeight.textContent = shown + 'm';
+      }
 
       // finale skin leaves a continuous spark trail (reuses the muzzle sparks,
       // which already animate and fall in every state)
@@ -1498,14 +1526,24 @@
     limitBotFade += (botHit - limitBotFade) * Math.min(1, dt*(botHit ? 18 : 5));
   }
 
+  // 空のグラデーションは毎フレーム作り直していた。段の間の色は連続に変わるが、
+  // 1/64 より細かい差は見て分からないので、丸めた値が変わったときだけ作り直す。
+  // 最上段(1600m以上)は次の段が自分自身になり t が 1 で止まるため、そこから先は
+  // 一度作ったものを使い続ける。
+  // 比較はオブジェクトの同一性と数値だけで行う。キーを文字列で作ると、
+  // 節約したいゴミを毎フレーム自分で生むことになる
+  let skyGrad = null, skyCur = null, skyNext = null, skyQ = -1;
   function drawSky(){
     const { cur, next, t } = getStage(heightM);
-    const top = lerpColor(cur.top, next.top, t);
-    const bottom = lerpColor(cur.bottom, next.bottom, t);
-    const grad = ctx.createLinearGradient(0,0,0,GAME_H);
-    grad.addColorStop(0, top);
-    grad.addColorStop(1, bottom);
-    ctx.fillStyle = grad;
+    const q = Math.round(t * 64);
+    if(cur !== skyCur || next !== skyNext || q !== skyQ){
+      skyCur = cur; skyNext = next; skyQ = q;
+      const tt = q / 64;
+      skyGrad = ctx.createLinearGradient(0,0,0,GAME_H);
+      skyGrad.addColorStop(0, lerpColor(cur.top, next.top, tt));
+      skyGrad.addColorStop(1, lerpColor(cur.bottom, next.bottom, tt));
+    }
+    ctx.fillStyle = skyGrad;
     ctx.fillRect(0,0,GAME_W,GAME_H);
   }
 
@@ -1513,17 +1551,40 @@
     const { cur, next, t } = getStage(heightM);
     const bg = background();
 
+    // 星は 70 個ある。以前は 1 個ずつ fillStyle を入れ直して beginPath/fill を
+    // 回していた。色文字列の解釈もパスの組み立ても 70 回ぶん毎フレーム捨てられ、
+    // ここだけで描画側のゴミの半分以上を作っていた。
+    // 瞬きの濃さを 8 段に丸めて、同じ濃さの星を一本のパスにまとめる。
+    // 塗りは最大 8 回、色の指定は 1 回で済む（見た目の差は分からない）
     const starDensity = lerp(cur.stars, next.stars, t);
-    ctx.save();
-    for(const s of stars){
-      const tw = 0.55 + 0.45*Math.sin(elapsed*2 + s.tw);
-      ctx.globalAlpha = starDensity * tw;
+    if(starDensity > 0.004){
+      ctx.save();
       ctx.fillStyle = bg.star;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
-      ctx.fill();
+      // どの段に入るかを先に決めておく。範囲の比較で振り分けると、
+      // 瞬きがちょうど上限(1.0)の粒がどの段にも入らず消えてしまう
+      for(let i=0;i<stars.length;i++){
+        const tw = 0.55 + 0.45*Math.sin(elapsed*2 + stars[i].tw);
+        starBand[i] = Math.min(STAR_BANDS-1, (tw*STAR_BANDS)|0);
+      }
+      for(let b=0;b<STAR_BANDS;b++){
+        let any = false;
+        ctx.beginPath();
+        for(let i=0;i<stars.length;i++){
+          if(starBand[i] !== b) continue;
+          const s = stars[i];
+          // arc の前に moveTo を入れないと、前の星から線で繋がれてしまう
+          ctx.moveTo(s.x + s.r, s.y);
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+          any = true;
+        }
+        if(any){
+          // その段の中央の濃さで代表させる
+          ctx.globalAlpha = starDensity * (b + 0.5) / STAR_BANDS;
+          ctx.fill();
+        }
+      }
+      ctx.restore();
     }
-    ctx.restore();
 
     const gridAmt = lerp(cur.grid, next.grid, t);
     if(gridAmt > 0.01){
@@ -1576,16 +1637,16 @@
       ctx.restore();
     }
 
-    const buildings = [75,150,105,215,120,175,90,235,110,160];
     const cityDrop = heightM * PIXELS_PER_METER; // sinks away at the same rate the world scrolls past
-    const maxBuildingH = Math.max(...buildings);
-    if(cityDrop < GAME_H + maxBuildingH + 40){
+    // 街は 200m ちょっとで見えなくなるのに、判定より前に配列と最大値を
+    // 毎フレーム作り直していた。中身は定数なので外へ出す
+    if(cityDrop < GAME_H + BUILDING_MAX_H + 40){
       ctx.save();
       ctx.fillStyle = bg.city;
       let x = 0;
       const bw = GAME_W / buildings.length;
-      for(const h of buildings){
-        ctx.fillRect(x, GAME_H - h + cityDrop, bw-3, h);
+      for(let i=0;i<buildings.length;i++){
+        ctx.fillRect(x, GAME_H - buildings[i] + cityDrop, bw-3, buildings[i]);
         x += bw;
       }
       ctx.fillStyle = bg.window;
@@ -1633,18 +1694,23 @@
   // Deliberately drawn OUTSIDE the camera transform and never scaled. The walls
   // are the frame of the play area rather than scenery inside it, so they stay
   // exactly where they started even while the burst pulls the camera back.
+  // 壁の滲みは位置も色も一切変わらない。毎フレーム作り直す理由がないので
+  // 初回だけ作って使い回す
+  let wallGradL = null, wallGradR = null;
   function drawWalls(){
     const wallW = PLAY_LEFT;
+    if(!wallGradL){
+      wallGradL = ctx.createLinearGradient(0,0,wallW,0);
+      wallGradL.addColorStop(0, 'rgba(255,47,176,0.55)');
+      wallGradL.addColorStop(1, 'rgba(255,47,176,0)');
+      wallGradR = ctx.createLinearGradient(GAME_W,0,GAME_W-wallW,0);
+      wallGradR.addColorStop(0, 'rgba(255,47,176,0.55)');
+      wallGradR.addColorStop(1, 'rgba(255,47,176,0)');
+    }
     ctx.save();
-    const glowL = ctx.createLinearGradient(0,0,wallW,0);
-    glowL.addColorStop(0, 'rgba(255,47,176,0.55)');
-    glowL.addColorStop(1, 'rgba(255,47,176,0)');
-    ctx.fillStyle = glowL;
+    ctx.fillStyle = wallGradL;
     ctx.fillRect(0,0,wallW,GAME_H);
-    const glowR = ctx.createLinearGradient(GAME_W,0,GAME_W-wallW,0);
-    glowR.addColorStop(0, 'rgba(255,47,176,0.55)');
-    glowR.addColorStop(1, 'rgba(255,47,176,0)');
-    ctx.fillStyle = glowR;
+    ctx.fillStyle = wallGradR;
     ctx.fillRect(GAME_W-wallW,0,wallW,GAME_H);
     ctx.strokeStyle = 'rgba(255,47,176,0.9)';
     ctx.lineWidth = 3;
@@ -1695,28 +1761,37 @@
         // The bank itself stays fairly light - the screen-space wash does the
         // heavy lifting once you're inside. Fades are a fixed number of pixels
         // rather than a fraction, or a 3,000px tall cloud would fade for 700px.
+        // 雲は 500m ぶんの高さがあり、抜けるまで何百フレームも描き続ける。
+        // グラデーションは雲の上端を原点にした形で一度だけ作り、
+        // 毎フレームは translate で位置を合わせるだけにする
         ctx.save();
-        const f = Math.min(0.3, 260 / o.h);
-        const g = ctx.createLinearGradient(0, o.y, 0, o.y + o.h);
-        g.addColorStop(0,   'rgba(238,244,255,0)');
-        g.addColorStop(f,   'rgba(238,244,255,0.28)');
-        g.addColorStop(1-f, 'rgba(238,244,255,0.28)');
-        g.addColorStop(1,   'rgba(238,244,255,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, o.y, GAME_W, o.h);
+        ctx.translate(0, o.y);
+        if(!o._grad){
+          const f = Math.min(0.3, 260 / o.h);
+          o._grad = ctx.createLinearGradient(0, 0, 0, o.h);
+          o._grad.addColorStop(0,   'rgba(238,244,255,0)');
+          o._grad.addColorStop(f,   'rgba(238,244,255,0.28)');
+          o._grad.addColorStop(1-f, 'rgba(238,244,255,0.28)');
+          o._grad.addColorStop(1,   'rgba(238,244,255,0)');
+        }
+        ctx.fillStyle = o._grad;
+        ctx.fillRect(0, 0, GAME_W, o.h);
 
         // 濃いモヤの層。画面全体の白飛ばしより手前で見えるので、
         // 上から迫ってくる帯として読める。これが唯一の予告になる
         for(const v of o.veils){
-          const top = o.y + v.y - v.span, span = v.span*2;
-          if(top > GAME_H || top + span < 0) continue;
-          const vg = ctx.createLinearGradient(0, top, 0, top + span);
-          vg.addColorStop(0,   'rgba(238,244,255,0)');
-          vg.addColorStop(0.5, `rgba(238,244,255,${(0.10 + v.gain).toFixed(3)})`);
-          vg.addColorStop(1,   'rgba(238,244,255,0)');
-          ctx.fillStyle = vg;
+          const top = v.y - v.span, span = v.span*2;
+          if(o.y + top > GAME_H || o.y + top + span < 0) continue;
+          if(!v._grad){
+            v._grad = ctx.createLinearGradient(0, top, 0, top + span);
+            v._grad.addColorStop(0,   'rgba(238,244,255,0)');
+            v._grad.addColorStop(0.5, `rgba(238,244,255,${(0.10 + v.gain).toFixed(3)})`);
+            v._grad.addColorStop(1,   'rgba(238,244,255,0)');
+          }
+          ctx.fillStyle = v._grad;
           ctx.fillRect(0, top, GAME_W, span);
         }
+        ctx.translate(0, -o.y); // 以降の puff は元の絶対座標で描く
 
         ctx.globalAlpha = 0.32;
         ctx.fillStyle = 'rgba(244,248,255,0.85)';
@@ -1804,16 +1879,25 @@
     const tr = trail();
     const tailLen = (14 + boost*54) * (tr.lenScale || 1);
     const tailTop = player.y + player.r;
+    // グラデーションは座標を抱え込むので、玉が動くたびに作り直していた。
+    // 原点まわりの固定長で一本だけ作っておき、translate/scale で当てはめる。
+    // 縦だけ伸ばしても線の太さ（横方向）は変わらないので見た目は同じ。
+    // 色の出どころ（トレイル定義、既定なら玉）に持たせるので、装備ごとに一本で済む
+    const src = tr.from ? tr : sk;
+    if(!src._tailGrad){
+      src._tailGrad = ctx.createLinearGradient(0, 0, 0, TAIL_BASE);
+      src._tailGrad.addColorStop(0, tr.from || sk.trailFrom);
+      src._tailGrad.addColorStop(1, tr.to   || sk.trailTo);
+    }
     ctx.save();
-    const tailGrad = ctx.createLinearGradient(player.x, tailTop, player.x, tailTop + tailLen);
-    tailGrad.addColorStop(0, tr.from || sk.trailFrom);
-    tailGrad.addColorStop(1, tr.to   || sk.trailTo);
-    ctx.strokeStyle = tailGrad;
+    ctx.translate(player.x, tailTop);
+    ctx.scale(1, tailLen / TAIL_BASE);
+    ctx.strokeStyle = src._tailGrad;
     ctx.lineWidth = (tr.width || 3) + boost*2;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(player.x, tailTop);
-    ctx.lineTo(player.x, tailTop + tailLen);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, TAIL_BASE);
     ctx.stroke();
     ctx.restore();
   }
@@ -1893,19 +1977,24 @@
 
   // 上下の限界線。押し続けている間だけ薄く出て、そこが端だと伝える。
   // 壁と同じピンクだと「当たると死ぬ」に見えるので、赤で別物として描く
+  // 壁と同じく位置も色も固定。押し続けている間ずっと出るので、
+  // 毎フレーム作ると押しっぱなしの間だけゴミが増える
+  let limitGrad = null;
   function drawLimitLines(){
     // dir は線から見た外側。-1 = 上の線、+1 = 下の線
     const draw = (y, a, dir) => {
       if(a <= 0.004) return;
       ctx.save();
       // 中央が濃く、左右の端に向かって消える。画面を横断する枠には見せない
-      const g = ctx.createLinearGradient(PLAY_LEFT, 0, PLAY_RIGHT, 0);
-      g.addColorStop(0,    'rgba(255,60,80,0)');
-      g.addColorStop(0.5,  'rgba(255,60,80,0.5)');
-      g.addColorStop(1,    'rgba(255,60,80,0)');
+      if(!limitGrad){
+        limitGrad = ctx.createLinearGradient(PLAY_LEFT, 0, PLAY_RIGHT, 0);
+        limitGrad.addColorStop(0,    'rgba(255,60,80,0)');
+        limitGrad.addColorStop(0.5,  'rgba(255,60,80,0.5)');
+        limitGrad.addColorStop(1,    'rgba(255,60,80,0)');
+      }
       const w = PLAY_RIGHT - PLAY_LEFT;
       ctx.globalAlpha = a;
-      ctx.fillStyle = g;
+      ctx.fillStyle = limitGrad;
       ctx.fillRect(PLAY_LEFT, y-1, w, 2);
       // 滲みは外側だけに伸ばす。内側に広げると玉にかぶる
       ctx.globalAlpha = a*0.35;
@@ -2256,14 +2345,14 @@
     for(const g of BACKGROUNDS){
       const ok = !g.gacha || has('bg:' + g.id);
       stockBg.appendChild(gearButton(BACKGROUNDS, g, ok, background().id === g.id, () => {
-        bgId = g.id; save(STORE_BG, bgId); renderStock();
+        bgId = g.id; save(STORE_BG, bgId); gearChanged(); renderStock();
       }));
     }
     stockTrail.textContent = '';
     for(const g of TRAILS){
       const ok = !g.gacha || has('trail:' + g.id);
       stockTrail.appendChild(gearButton(TRAILS, g, ok, trail().id === g.id, () => {
-        trailId = g.id; save(STORE_TRAIL, trailId); renderStock();
+        trailId = g.id; save(STORE_TRAIL, trailId); gearChanged(); renderStock();
       }));
     }
     stockTicket.textContent = '';
@@ -2536,6 +2625,7 @@
     gachaFx.classList.add('hidden');
     gachaCard.classList.add('hidden');
     if(silent) return;
+    gearChanged(); // 引き当てた背景・トレイルが所持判定に入るので持ち回しを捨てる
     renderPtBadges();
     renderRates();
     renderStock();
