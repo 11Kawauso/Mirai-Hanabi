@@ -136,6 +136,17 @@
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('orientationchange', resizeCanvas);
 
+  // ---- 調査用スイッチ --------------------------------------------------------
+  // カクつきが「ずっと重い」のか「たまに跳ねる」のかは、実際に遊ぶ端末で
+  // 測らないと分からない。URL に付けたときだけ効くので、普通に遊ぶ人には
+  // 一切影響しない。
+  //   ?debug     … フレーム時間の表示を出す
+  //   ?nogrid    … 背景のグリッドを描かない（原因の切り分け用）
+  //   ?noshadow  … 玉のぼかし光彩を切る（同上）
+  const DEBUG     = /[?&]debug/.test(location.search);
+  const NO_GRID   = /[?&]nogrid/.test(location.search);
+  const NO_SHADOW = /[?&]noshadow/.test(location.search);
+
   const hudHeight = document.getElementById('hud-height');
   const hudBest = document.getElementById('hud-best');
   const startScreen = document.getElementById('start-screen');
@@ -1587,7 +1598,7 @@
     }
 
     const gridAmt = lerp(cur.grid, next.grid, t);
-    if(gridAmt > 0.01){
+    if(gridAmt > 0.01 && !NO_GRID){
       // The grid rides the camera pull-back too - it's the clearest ruler on
       // screen for how far a burst has spread. Its extents grow by 1/zoom so the
       // shrunken grid still reaches the frame edges instead of becoming a small
@@ -1866,7 +1877,7 @@
     }
 
     ctx.save();
-    ctx.shadowBlur = grand ? 26 : 18;
+    ctx.shadowBlur = NO_SHADOW ? 0 : (grand ? 26 : 18);
     ctx.shadowColor = glow;
     ctx.fillStyle = sk.core;
     ctx.beginPath();
@@ -2138,6 +2149,46 @@
     ctx.restore();
 
     drawWindGauge(); // HUD, never scaled
+    if(DEBUG) drawPerf();
+  }
+
+  // ---- フレーム時間の計測（?debug のときだけ）--------------------------------
+  // 測るのは rAF が呼ばれる間隔そのもの。JS の実行時間だけでなく、
+  // 描画・合成・GC も全部ここに現れるので、「重い」のか「跳ねている」のかが
+  // これひとつで分かる
+  const SPIKE_MS = 32; // 60fps で2フレーム落ちた相当。これを跳ねたと数える
+  const perf = { prev:0, ema:16.7, worst:0, worstAt:0, win:0, spikes:0, recent:[] };
+  function perfSample(ts){
+    if(perf.prev){
+      const d = ts - perf.prev;
+      perf.ema += (d - perf.ema) * 0.08;
+      if(d > perf.worst){ perf.worst = d; perf.worstAt = heightM; }
+      if(d > SPIKE_MS && state === 'playing'){
+        perf.spikes++;
+        perf.recent.unshift(Math.round(heightM) + 'm ' + Math.round(d) + 'ms');
+        if(perf.recent.length > 3) perf.recent.pop();
+      }
+      // 直近の山だけ見たいので、2秒ごとに最悪値を捨てる
+      perf.win += d;
+      if(perf.win > 2000){ perf.win = 0; perf.worst = 0; }
+    }
+    perf.prev = ts;
+  }
+  function drawPerf(){
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(6, 92, 210, 76);
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = perf.ema > 20 ? '#ff8a8a' : '#5eff9e';
+    ctx.fillText(`${(1000/perf.ema).toFixed(0)}fps  worst ${perf.worst.toFixed(0)}ms`, 14, 110);
+    ctx.fillStyle = perf.spikes ? '#ffd23f' : 'rgba(238,242,255,0.6)';
+    ctx.fillText(`spikes ${perf.spikes} (>${SPIKE_MS}ms)`, 14, 127);
+    ctx.fillStyle = 'rgba(238,242,255,0.75)';
+    ctx.font = '11px monospace';
+    for(let i=0;i<perf.recent.length;i++) ctx.fillText(perf.recent[i], 14, 143 + i*13);
+    ctx.restore();
   }
 
   // ---- 横向きの停止 ---------------------------------------------------------
@@ -2156,6 +2207,7 @@
     if(!lastTime) lastTime = ts;
     const dt = Math.min(0.05, (ts-lastTime)/1000);
     lastTime = ts;
+    if(DEBUG) perfSample(ts);
     // 横向きの間は時間を進めない。飛行中に持ち替えただけで死ぬのは理不尽なので、
     // 縦へ戻すと止まったところから続く。dt は毎フレーム捨てているので、
     // 戻した瞬間にまとめて進むこともない
