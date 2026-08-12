@@ -2473,6 +2473,9 @@
 
   const isPrize = (e) => e.kind !== 'ticket';
   const inPool  = (e) => !(isPrize(e) && has(e.id)); // 引き当て済みの目玉は出ない
+  // 天井の対象。シークレットは外す。入れてしまうと、通常 0.5% の品が
+  // 天井では 9%（0.5 ÷ 5.5）で出ることになり、隠し玉の意味が無くなる
+  const isPityPrize = (e) => isPrize(e) && !RANKS[e.rank].hidden;
 
   // いま引ける品それぞれの確率を出す。合計は必ず 1。
   //   ・レア度の枠(RANKS[].rate)を、そのレア度の品数で等分する
@@ -2500,7 +2503,7 @@
 
   function rollGacha(){
     const odds = gachaOdds();
-    const prizes = [...odds.keys()].filter(isPrize);
+    const prizes = [...odds.keys()].filter(isPityPrize);
     // 天井。PITY_MAX 回続けて目玉が出なければ、その回は目玉から確定で出す。
     // 目玉が全部揃っていれば天井は働かず、券だけが出続ける。
     // 目玉の中でもレア度の比は保つ（確定でも UR より SR が出やすい）
@@ -2513,7 +2516,9 @@
     let hit = from[from.length - 1];
     for(const e of from){ r -= odds.get(e); if(r <= 0){ hit = e; break; } }
 
-    pityCount = isPrize(hit) ? 0 : pityCount + 1;
+    // シークレットは天井の外なので、当てても数え直さない。ここで 0 に戻すと
+    // 「あと何回で目玉が確定」という約束を、対象外の品で反故にしてしまう
+    pityCount = isPityPrize(hit) ? 0 : pityCount + 1;
     save(STORE_PITY, String(pityCount));
 
     if(hit.kind === 'ticket'){
@@ -2576,7 +2581,7 @@
     }
     if(gachaPityEl){
       const left = PITY_MAX - pityCount;
-      const anyPrize = pool.some(isPrize);
+      const anyPrize = pool.some(isPityPrize);
       gachaPityEl.textContent = anyPrize
         ? `あと ${Math.max(1, left)} 回引くと、目玉のどれかが確定で出ます`
         : '目玉はすべて獲得済みです';
