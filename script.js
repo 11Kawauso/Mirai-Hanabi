@@ -609,7 +609,26 @@
         pistilRatio:0.08,
         pistil:['#ffffff','#f0f6ff','#ffffff','#e6efff']
       },
-      burst:2.5 }
+      burst:2.5 },
+
+    // シークレット。長岡の「米百俵花火・尺玉100連発」から。
+    // 米百俵は、目先の食料として配るはずの米を売って学校を建てた長岡の逸話で、
+    // 「その一発は、未来まで届くか」というこの作品の題そのものにあたる。
+    // secret 印の玉は、持っていないあいだスキン一覧にも出さない（存在を伏せる）
+    { id:'kome', name:'米百俵', gacha:true, secret:true, unlock:Infinity,
+      core:'#fffbe8', glow:'#f5c518',
+      trailFrom:'rgba(245,197,24,0.65)', trailTo:'rgba(180,90,0,0)',
+      palette:['#f5c518','#ffd23f','#fff0a8','#e8a33d','#fffbe8','#ffb14a'],
+      // 追い咲き。開いたあとも小さな玉が次々に上がって咲き続ける
+      volley:{
+        shots:16,                 // 追い咲きの数
+        gap:0.18, gapRand:0.16,   // 次の玉までの間隔(秒)
+        count:24, countRand:16,   // 1発あたりの粒数
+        speed:110, speedRand:70,
+        life:0.9, lifeSpan:0.7,
+        size:2.0
+      },
+      burst:1.8 }
   ];
 
   // "1.5k" style so the number still fits inside a locked swatch
@@ -639,6 +658,9 @@
       row.textContent = '';
       SKINS.forEach((s, i) => {
         const open = isUnlocked(s);
+        // シークレットは持つまで枠ごと出さない。伏せ札で並べてしまうと、
+        // 「まだ何かある」と分かってしまい隠す意味がなくなる
+        if(s.secret && !open) return;
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'skin-dot' + (i === skinIndex ? ' on' : '') + (open ? '' : ' locked')
@@ -936,6 +958,7 @@
     obstacles = [];
     particles = [];
     muzzleParticles = [];
+    volleyQueue.length = 0; // 前の回の追い咲きが残っていると次の飛行中に咲く
     // 難易度の時計は開始高度ぶん進めておく。これで風・障害物の密度・
     // スクロール速度が「そこまで自力で飛んできた」状態と揃う
     elapsed = timeForHeight(from);
@@ -1163,6 +1186,18 @@
         twPhase: Math.random()*Math.PI*2
       });
     }
+    // 追い咲きの予約。開いた花を見せてから始めたいので少し置いてから
+    volleyQueue.length = 0;
+    volleyT = 0;
+    volleySkin = sk.volley ? sk : null;
+    if(volleySkin){
+      let at = 0.4;
+      for(let i=0;i<sk.volley.shots;i++){
+        at += sk.volley.gap + Math.random()*sk.volley.gapRand;
+        volleyQueue.push(at);
+      }
+    }
+
     // 記録は到達高度そのもの。スキップ券で飛ばした分もそのまま含める。
     // 自力で飛んだ距離（heightM - runStartM）はポイントの計算にだけ使う
     if(heightM > bestHeightM){
@@ -1229,6 +1264,38 @@
   }
 
   let explodeTimer = 0;
+
+  // 追い咲き（米百俵の尺玉連発）。開いたあと、控えている時刻が来るたびに
+  // 小さな玉を咲かせる。撃つ位置はそのときのカメラの引き具合から決めるので、
+  // 予約しておくのは時刻だけでよい
+  const volleyQueue = [];
+  let volleyT = 0, volleySkin = null;
+
+  function spawnVolleyShot(sk){
+    const V = sk.volley, pal = sk.palette;
+    // カメラが引いているぶん見えている世界は広い。その範囲に散らし、
+    // 速度と粒の大きさは引き具合で割り戻して、画面上の見た目を揃える
+    const z = Math.max(0.05, currentZoom);
+    const cx = GAME_W/2 + (Math.random()-0.5) * (GAME_W/z) * 0.75;
+    const cy = GAME_H/2 + (Math.random()-0.5) * (GAME_H/z) * 0.75;
+    const n = V.count + Math.floor(Math.random()*V.countRand);
+    const maxLife = V.life + V.lifeSpan;
+    for(let i=0;i<n;i++){
+      // 本編の花と同じく、等分した枠の中で少しだけ散らす
+      const a = ((i + 0.5 + (Math.random()-0.5)*0.85) / n) * Math.PI*2;
+      const sp = (V.speed + Math.random()*V.speedRand) / z;
+      particles.push({
+        x:cx, y:cy,
+        vx:Math.cos(a)*sp, vy:Math.sin(a)*sp,
+        r:(V.size + Math.random()*1.4) / z,
+        life:V.life + Math.random()*V.lifeSpan, maxLife,
+        color:pal[Math.floor(Math.random()*pal.length)],
+        tail:null, tailN:0, tailT:0,
+        twRate: TWINKLE_RATE + Math.random()*TWINKLE_RATE_RAND,
+        twPhase: Math.random()*Math.PI*2
+      });
+    }
+  }
 
   function update(dt){
     elapsed += dt;
@@ -1516,11 +1583,21 @@
       }
     }
 
+    // 追い咲き。結果画面の裏でも続くよう、state とは切り離して回す
+    if(volleyQueue.length){
+      volleyT += dt;
+      while(volleyQueue.length && volleyT >= volleyQueue[0]){
+        volleyQueue.shift();
+        spawnVolleyShot(volleySkin);
+      }
+    }
+
     if(state === 'exploding'){
       explodeTimer += dt;
       // 開花を見せたら結果へ移る。粒の寿命とは切り離してあるので、長く咲く玉は
-      // このあと結果画面の裏で咲き続ける
-      if(explodeTimer > RESULT_DELAY || particles.length === 0){
+      // このあと結果画面の裏で咲き続ける。
+      // 追い咲きは玉と玉の間で粒が尽きることがあるので、控えが残っていれば待つ
+      if(explodeTimer > RESULT_DELAY || (particles.length === 0 && !volleyQueue.length)){
         explodeTimer = 0;
         endToResult();
       }
@@ -2350,38 +2427,44 @@
   });
 
   // ---- gacha: pool ----------------------------------------------------------
-  // レア度は N/R/SR/UR。表示は花火の等級らしく「並・上・特上・極上」を添える。
+  // 確率はレア度ごとに固定。品ごとの重みは持たせず、そのレア度の枠を
+  // 中の品で等分する（同じレア度なら必ず同じ確率になる）。
+  // 表示は花火の等級らしく「並・上・特上・極上・秘蔵」を添える。
+  //   tier … 高いほど格上。確定演出を出すかの判定に使う
+  //   hidden … 品書きに載せない。シークレットは引くまで存在を伏せる
   const RANKS = {
-    N:  { label:'N',  name:'並',   color:'#dbe4f5' },
-    R:  { label:'R',  name:'上',   color:'#7bdcff' },
-    SR: { label:'SR', name:'特上', color:'#c084fc' },
-    UR: { label:'UR', name:'極上', color:'#ffd23f' }
+    N:      { label:'N',      name:'並',   color:'#dbe4f5', rate:0.695, tier:0 },
+    R:      { label:'R',      name:'上',   color:'#7bdcff', rate:0.25,  tier:1 },
+    SR:     { label:'SR',     name:'特上', color:'#c084fc', rate:0.04,  tier:2 },
+    UR:     { label:'UR',     name:'極上', color:'#ffd23f', rate:0.01,  tier:3 },
+    SECRET: { label:'SECRET', name:'秘蔵', color:'#ff5fa8', rate:0.005, tier:4, hidden:true }
   };
 
-  // weight は「そのとき引ける中での相対比」。目玉は当たると抜けるので、
-  // 揃っていくほど残りの目玉が出やすくなる（合計は毎回引き直して 100% にする）
   // 演出の花火はレア度によらず薄い黄色なので、品ごとの色は持たせていない
   const GACHA_POOL = [
-    { id:'skin:shirogiku', kind:'skin', rank:'UR', weight:2, name:'白菊',
+    { id:'skin:kome', kind:'skin', rank:'SECRET', name:'米百俵',
+      desc:'長岡の「米百俵花火・尺玉100連発」。開いたあとも、小さな玉が次々に咲き続けます。スタート画面の「花火スキン」から選べます。' },
+
+    { id:'skin:shirogiku', kind:'skin', rank:'UR', name:'白菊',
       desc:'長岡花火が本編の前に上げる、慰霊の白一色の三尺玉。スタート画面の「花火スキン」から選べます。' },
 
-    { id:'bg:shinano', kind:'bg', rank:'SR', weight:3, name:'信濃川',
+    { id:'bg:shinano', kind:'bg', rank:'SR', name:'信濃川',
       desc:'玉が上がる河川敷の空。夜空が藍と碧に変わり、地平のルーラーが金になります。' },
 
-    { id:'trail:kinshi', kind:'trail', rank:'SR', weight:3, name:'金糸',
+    { id:'trail:kinshi', kind:'trail', rank:'SR', name:'金糸',
       desc:'太く長い金の尾。飛んでいるあいだ、ずっと火の粉を落とし続けます。' },
 
     // key は手持ちの保存先。スキップ券は高度、それ以外は名前を使う
-    { id:'ticket:x2', kind:'ticket', rank:'R', weight:5, key:X2_KEY, name:'pt2倍券',
+    { id:'ticket:x2', kind:'ticket', rank:'R', key:X2_KEY, name:'pt2倍券',
       desc:'使った回にもらえるポイントが2倍になります。打ち上げる前に「使う」を選んでください。' },
 
-    { id:'ticket:2000', kind:'ticket', rank:'N', weight:18, m:2000, key:2000, name:'2000mスキップ券',
+    { id:'ticket:2000', kind:'ticket', rank:'N', m:2000, key:2000, name:'2000mスキップ券',
       desc:'2000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。' },
 
-    { id:'ticket:1000', kind:'ticket', rank:'N', weight:28, m:1000, key:1000, name:'1000mスキップ券',
+    { id:'ticket:1000', kind:'ticket', rank:'N', m:1000, key:1000, name:'1000mスキップ券',
       desc:'1000m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。' },
 
-    { id:'ticket:500', kind:'ticket', rank:'N', weight:41, m:500, key:500, name:'500mスキップ券',
+    { id:'ticket:500', kind:'ticket', rank:'N', m:500, key:500, name:'500mスキップ券',
       desc:'500m から打ち上げます。到達高度がそのまま記録になります（ポイントだけは自力で飛んだぶんから）。' }
   ];
 
@@ -2391,18 +2474,44 @@
   const isPrize = (e) => e.kind !== 'ticket';
   const inPool  = (e) => !(isPrize(e) && has(e.id)); // 引き当て済みの目玉は出ない
 
-  function rollGacha(){
-    const pool = GACHA_POOL.filter(inPool);
-    const prizes = pool.filter(isPrize);
-    // 天井。PITY_MAX 回続けて目玉が出なければ、その回は目玉から確定で出す。
-    // 目玉が全部揃っていれば天井は働かず、券だけが出続ける
-    const forced = prizes.length > 0 && pityCount + 1 >= PITY_MAX;
-    const from = forced ? prizes : pool;
-    const total = from.reduce((s,e) => s + e.weight, 0);
+  // いま引ける品それぞれの確率を出す。合計は必ず 1。
+  //   ・レア度の枠(RANKS[].rate)を、そのレア度の品数で等分する
+  //   ・引き当て済みで品が無くなったレア度の枠は、残ったレア度へ按分する
+  //     （そうしないと合計が 1 に足りず、確率が宙に浮く）
+  // 使い回しの Map。ガチャは1回引くたびにしか呼ばれないので取り合いは起きない
+  const oddsOut = new Map();
+  function gachaOdds(){
+    oddsOut.clear();
+    const byRank = new Map();
+    for(const e of GACHA_POOL){
+      if(!inPool(e)) continue;
+      if(!byRank.has(e.rank)) byRank.set(e.rank, []);
+      byRank.get(e.rank).push(e);
+    }
+    let total = 0;
+    for(const rank of byRank.keys()) total += RANKS[rank].rate;
+    if(total <= 0) return oddsOut;
+    for(const [rank, items] of byRank){
+      const share = RANKS[rank].rate / total / items.length;
+      for(const e of items) oddsOut.set(e, share);
+    }
+    return oddsOut;
+  }
 
-    let r = Math.random() * total;
+  function rollGacha(){
+    const odds = gachaOdds();
+    const prizes = [...odds.keys()].filter(isPrize);
+    // 天井。PITY_MAX 回続けて目玉が出なければ、その回は目玉から確定で出す。
+    // 目玉が全部揃っていれば天井は働かず、券だけが出続ける。
+    // 目玉の中でもレア度の比は保つ（確定でも UR より SR が出やすい）
+    const forced = prizes.length > 0 && pityCount + 1 >= PITY_MAX;
+    const from = forced ? prizes : [...odds.keys()];
+
+    let sum = 0;
+    for(const e of from) sum += odds.get(e);
+    let r = Math.random() * sum;
     let hit = from[from.length - 1];
-    for(const e of from){ r -= e.weight; if(r <= 0){ hit = e; break; } }
+    for(const e of from){ r -= odds.get(e); if(r <= 0){ hit = e; break; } }
 
     pityCount = isPrize(hit) ? 0 : pityCount + 1;
     save(STORE_PITY, String(pityCount));
@@ -2446,9 +2555,12 @@
   function renderRates(){
     if(!gachaRatesEl) return;
     gachaRatesEl.textContent = '';
+    const odds = gachaOdds();
     const pool = GACHA_POOL.filter(inPool);
-    const total = pool.reduce((s,e) => s + e.weight, 0) || 1;
     for(const e of GACHA_POOL){
+      // シークレットは品書きに載せない。載っていない 0.5% は、表の合計が
+      // 100% に届かないことでだけ気配が残る
+      if(RANKS[e.rank].hidden) continue;
       const gone = !inPool(e);
       const li = document.createElement('li');
       li.className = 'gacha-rate' + (gone ? ' gone' : '');
@@ -2458,7 +2570,7 @@
       n.textContent = e.name;
       const p = document.createElement('span');
       p.className = 'rate-pct';
-      p.textContent = gone ? '獲得済み' : (e.weight/total*100).toFixed(1) + '%';
+      p.textContent = gone ? '獲得済み' : ((odds.get(e) || 0)*100).toFixed(1) + '%';
       li.append(n, p);
       gachaRatesEl.appendChild(li);
     }
@@ -2560,7 +2672,8 @@
   const FX_DRAG = 1.15;   // 粒の失速。到達半径はおよそ v/FX_DRAG になる
   // レア度ごとの規模。UR だけ閃光と二段の花が付く
   const FX_SCALE = { N:{n:80,v:195,r:2.6}, R:{n:140,v:245,r:3.0},
-                     SR:{n:220,v:295,r:3.4}, UR:{n:340,v:345,r:4.0} };
+                     SR:{n:220,v:295,r:3.4}, UR:{n:340,v:345,r:4.0},
+                     SECRET:{n:420,v:395,r:4.4} };
 
   // 打ち上がる玉は何が当たっても薄い黄色で通す。レア度で色を変えると、
   // 開く前に結果が読めてしまい、当てる楽しみが消える。
@@ -2593,13 +2706,16 @@
     // 色はレア度に関係なく薄い黄色。規模と閃光だけがレア度で変わるが、
     // これは開いた瞬間＝結果が分かる瞬間なので、事前の手掛かりにはならない
     const cols = FX_SHELL_BURST;
-    fxFlash = fxEntry.rank === 'UR' ? 1 : (fxEntry.rank === 'SR' ? 0.55 : 0.25);
+    // 格が上がるほど強く光らせる。開いた瞬間＝結果が分かる瞬間なので、
+    // ここで差が付いても事前の手掛かりにはならない
+    const tier = RANKS[fxEntry.rank].tier;
+    fxFlash = tier >= 3 ? 1 : tier >= 2 ? 0.55 : 0.25;
     for(let i=0;i<s.n;i++){
       // 等分割の枠内で少しだけ散らす。ゲーム本編の菊と同じ考え方で、
       // 完全な乱数だと必ず粗密ができてしまう
       const a = ((i + 0.5 + (Math.random()-0.5)*0.8) / s.n) * Math.PI*2;
       // UR は内側にもう一枚。二段になると格が上がって見える
-      const layer = (fxEntry.rank === 'UR' && i % 3 === 0) ? 0.5 : 1;
+      const layer = (tier >= 3 && i % 3 === 0) ? 0.5 : 1;
       const sp = s.v * (0.72 + Math.random()*0.38) * layer;
       fxParts.push({
         x:GAME_W/2, y:FX_BURST_Y,
@@ -2746,7 +2862,7 @@
     fxBgParts = [];
     fxBgQueue = [];
     // 確定演出は SR 以上のときだけ仕込む。ここが唯一「開く前に分かる」手掛かり
-    if((entry.rank === 'SR' || entry.rank === 'UR') && Math.random() < FX_CONFIRM_CHANCE){
+    if(RANKS[entry.rank].tier >= 2 && Math.random() < FX_CONFIRM_CHANCE){
       fxQueueConfirm();
     }
     fxBurst = false;
