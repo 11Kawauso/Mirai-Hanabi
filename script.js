@@ -1558,6 +1558,102 @@
     ctx.fillRect(0,0,GAME_W,GAME_H);
   }
 
+  // ---- 背景グリッド ----------------------------------------------------------
+  // 横線と奥行きの線あわせて 48 本を毎フレーム stroke していた。斜めのアンチ
+  // エイリアス線は塗りが重く、高リフレッシュの環境では 1 フレームの持ち時間
+  // （240Hz なら 4.2ms）を超えて数百ミリ秒の詰まりになることがある。
+  // 線の絵は地平線 topY が動かなければ同じなので、裏の canvas に描いて貼る。
+  // 横線は 34px 周期で流れるだけなので、貼る位置をずらせば使い回せる。
+  const GRID_PAD = 40;      // 画面外へはみ出させる量。端に素の空が覗かないように
+  const GRID_SPACING = 34;
+  const GRID_W = GAME_W + GRID_PAD*2;
+  const GRID_H = GAME_H + GRID_PAD + GRID_SPACING;
+  const gridPersp = document.createElement('canvas'); // 奥行きの線。流れない
+  const gridRows  = document.createElement('canvas'); // 横線。下へ流れる
+  let gridKeyTop = -1, gridKeyColor = '', gridKeyDpr = 0;
+
+  // その場で引く版。カメラが引いている開花中だけここを通る
+  function strokeGrid(g, topY, offset, padX, padY, color, amt){
+    g.strokeStyle = color;
+    g.lineWidth = 1;
+    g.globalAlpha = amt * 0.5;
+    g.beginPath();
+    let y = GAME_H - offset;
+    while(y < GAME_H + padY) y += GRID_SPACING;
+    for(; y > topY; y -= GRID_SPACING){
+      g.moveTo(-padX, y);
+      g.lineTo(GAME_W + padX, y);
+    }
+    g.stroke();
+
+    g.globalAlpha = amt * 0.35;
+    g.beginPath();
+    const cx = GAME_W/2;
+    const stretch = (GAME_H + padY - topY) / (GAME_H - topY);
+    for(let x = -GAME_W - padX; x < GAME_W*2 + padX; x += 48){
+      const sx = cx + (x-cx)*0.2;
+      g.moveTo(sx, topY);
+      g.lineTo(sx + (x - sx)*stretch, GAME_H + padY);
+    }
+    g.stroke();
+  }
+
+  // 貼り絵を作る。濃さは貼るときに掛けるので、ここでは不透明で描く
+  function buildGrid(topY, color, dpr){
+    for(const c of [gridPersp, gridRows]){
+      c.width  = Math.round(GRID_W*dpr);
+      c.height = Math.round(GRID_H*dpr);
+    }
+    const gp = gridPersp.getContext('2d');
+    const gr = gridRows.getContext('2d');
+    // 画面の x=-GRID_PAD が裏 canvas の左端に来るようにずらしておく
+    for(const g of [gp, gr]){
+      g.setTransform(dpr, 0, 0, dpr, GRID_PAD*dpr, 0);
+      g.strokeStyle = color;
+      g.lineWidth = 1;
+    }
+    const cx = GAME_W/2;
+    const stretch = (GAME_H + GRID_PAD - topY) / (GAME_H - topY);
+    gp.beginPath();
+    for(let x = -GAME_W - GRID_PAD; x < GAME_W*2 + GRID_PAD; x += 48){
+      const sx = cx + (x-cx)*0.2;
+      gp.moveTo(sx, topY);
+      gp.lineTo(sx + (x - sx)*stretch, GAME_H + GRID_PAD);
+    }
+    gp.stroke();
+
+    // 横線は 0 から等間隔に引いておく。どの位置に貼っても間隔が合う
+    gr.beginPath();
+    for(let y = 0; y <= GRID_H; y += GRID_SPACING){
+      gr.moveTo(-GRID_PAD, y);
+      gr.lineTo(GAME_W + GRID_PAD, y);
+    }
+    gr.stroke();
+  }
+
+  function blitGrid(topY, offset, color, amt){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // 1px 刻み。地平線は 5,450m かけて 344px しか動かないので、作り直しは
+    // 16m に1回ほど。240Hz なら「毎フレーム引く」の 200 分の 1 で済む
+    const top = Math.round(topY);
+    if(top !== gridKeyTop || color !== gridKeyColor || dpr !== gridKeyDpr){
+      gridKeyTop = top; gridKeyColor = color; gridKeyDpr = dpr;
+      buildGrid(top, color, dpr);
+    }
+    ctx.globalAlpha = amt * 0.35;
+    ctx.drawImage(gridPersp, -GRID_PAD, 0, GRID_W, GRID_H);
+
+    // 横線。線が来るべき位置に合わせて貼り、地平線より上は元画像を切り落とす
+    const base = (((GAME_H - offset) % GRID_SPACING) + GRID_SPACING) % GRID_SPACING;
+    const sy = Math.max(0, top - base);
+    if(sy < GRID_H){
+      ctx.globalAlpha = amt * 0.5;
+      ctx.drawImage(gridRows,
+        0, sy*dpr, GRID_W*dpr, (GRID_H - sy)*dpr,
+        -GRID_PAD, base + sy, GRID_W, GRID_H - sy);
+    }
+  }
+
   function drawBackgroundDetails(){
     const { cur, next, t } = getStage(heightM);
     const bg = background();
@@ -1608,43 +1704,27 @@
       const cx = GAME_W/2, cy = GAME_H/2;
       // +40 of slack: without it the padding lands exactly on the frame edge and
       // a rounding error shows a sliver of bare sky there
-      const padX = (GAME_W/2) * (1/z - 1) + 40;
-      const padY = (GAME_H/2) * (1/z - 1) + 40;
-      const spacing = 34;
-      const offset = (elapsed*40) % spacing;
+      const padX = (GAME_W/2) * (1/z - 1) + GRID_PAD;
+      const padY = (GAME_H/2) * (1/z - 1) + GRID_PAD;
+      const offset = (elapsed*40) % GRID_SPACING;
       // 地平線をせり上げる。両端で滑らかに繋がるよう smoothstep で均す
       const r = clamp((heightM - GRID_RISE_FROM) / (GRID_RISE_TO - GRID_RISE_FROM), 0, 1);
       const topY = GAME_H * lerp(GRID_TOP_LOW, GRID_TOP_HIGH, r*r*(3 - 2*r));
 
       ctx.save();
       if(z !== 1){
+        // 開花中だけカメラが引く。はみ出す量が毎フレーム変わるので貼り絵に
+        // できないが、数秒で終わるうえ結果画面の裏なのでその場で引く
         ctx.translate(cx, cy);
         ctx.scale(z, z);
         ctx.translate(-cx, -cy);
+        strokeGrid(ctx, topY, offset, padX, padY, bg.grid, gridAmt);
+      } else {
+        // 平常時。線の絵は地平線(topY)が動かないかぎり同じなので、裏の canvas に
+        // 描いておいて貼るだけにする。毎フレーム 48 本の斜め線を引き直すのが
+        // カクつきの原因だった（240Hz だと 1 フレーム 4ms しか無い）
+        blitGrid(topY, offset, bg.grid, gridAmt);
       }
-      ctx.strokeStyle = bg.grid;
-      ctx.lineWidth = 1;
-
-      // batched into one path per group - this used to be one stroke per line
-      ctx.globalAlpha = gridAmt * 0.5;
-      ctx.beginPath();
-      let y = GAME_H - offset;
-      while(y < GAME_H + padY) y += spacing;
-      for(; y > topY; y -= spacing){
-        ctx.moveTo(-padX, y);
-        ctx.lineTo(GAME_W + padX, y);
-      }
-      ctx.stroke();
-
-      ctx.globalAlpha = gridAmt * 0.35;
-      ctx.beginPath();
-      const stretch = (GAME_H + padY - topY) / (GAME_H - topY);
-      for(let x = -GAME_W - padX; x < GAME_W*2 + padX; x += 48){
-        const sx = cx + (x-cx)*0.2;
-        ctx.moveTo(sx, topY);
-        ctx.lineTo(sx + (x - sx)*stretch, GAME_H + padY);
-      }
-      ctx.stroke();
       ctx.restore();
     }
 
@@ -2156,16 +2236,28 @@
   // 測るのは rAF が呼ばれる間隔そのもの。JS の実行時間だけでなく、
   // 描画・合成・GC も全部ここに現れるので、「重い」のか「跳ねている」のかが
   // これひとつで分かる
-  const SPIKE_MS = 32; // 60fps で2フレーム落ちた相当。これを跳ねたと数える
-  const perf = { prev:0, ema:16.7, worst:0, worstAt:0, win:0, spikes:0, recent:[] };
+  // 跳ねた原因を切り分けるために、1フレームを二つに分けて見る。
+  //   work … update+draw に自分で使った時間
+  //   間隔 … rAF が次に呼ばれるまでの実時間（work のほか、画面への転送・GC・
+  //          ブラウザ側の割り込みが全部入る）
+  // work が小さいのに間隔だけ大きければ、原因は自分のコードの外にある。
+  // GC かどうかは、その瞬間にヒープが減ったかで見分けられる
+  const SPIKE_MS = 32; // 60fps で2フレーム落ちた相当
+  const perf = { prev:0, ema:16.7, worst:0, win:0, spikes:0, work:0, heap:0, recent:[] };
+  const heapNow = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
   function perfSample(ts){
+    const heap = heapNow();
     if(perf.prev){
       const d = ts - perf.prev;
       perf.ema += (d - perf.ema) * 0.08;
-      if(d > perf.worst){ perf.worst = d; perf.worstAt = heightM; }
+      if(d > perf.worst) perf.worst = d;
       if(d > SPIKE_MS && state === 'playing'){
         perf.spikes++;
-        perf.recent.unshift(Math.round(heightM) + 'm ' + Math.round(d) + 'ms');
+        const drop = (perf.heap - heap) / 1048576;
+        perf.recent.unshift(
+          `${Math.round(heightM)}m ${Math.round(d)}ms work${perf.work.toFixed(1)}`
+          + (drop > 0.2 ? ` GC-${drop.toFixed(1)}M` : '')
+        );
         if(perf.recent.length > 3) perf.recent.pop();
       }
       // 直近の山だけ見たいので、2秒ごとに最悪値を捨てる
@@ -2173,21 +2265,22 @@
       if(perf.win > 2000){ perf.win = 0; perf.worst = 0; }
     }
     perf.prev = ts;
+    perf.heap = heap;
   }
   function drawPerf(){
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(6, 92, 210, 76);
-    ctx.font = 'bold 12px monospace';
+    ctx.fillStyle = 'rgba(0,0,0,0.62)';
+    ctx.fillRect(6, 92, 300, 82);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
+    ctx.font = 'bold 12px monospace';
     ctx.fillStyle = perf.ema > 20 ? '#ff8a8a' : '#5eff9e';
-    ctx.fillText(`${(1000/perf.ema).toFixed(0)}fps  worst ${perf.worst.toFixed(0)}ms`, 14, 110);
+    ctx.fillText(`${(1000/perf.ema).toFixed(0)}fps worst${perf.worst.toFixed(0)} work${perf.work.toFixed(1)}`, 12, 110);
     ctx.fillStyle = perf.spikes ? '#ffd23f' : 'rgba(238,242,255,0.6)';
-    ctx.fillText(`spikes ${perf.spikes} (>${SPIKE_MS}ms)`, 14, 127);
-    ctx.fillStyle = 'rgba(238,242,255,0.75)';
-    ctx.font = '11px monospace';
-    for(let i=0;i<perf.recent.length;i++) ctx.fillText(perf.recent[i], 14, 143 + i*13);
+    ctx.fillText(`spikes ${perf.spikes}  heap ${(perf.heap/1048576).toFixed(1)}M`, 12, 127);
+    ctx.fillStyle = 'rgba(238,242,255,0.8)';
+    ctx.font = '10px monospace';
+    for(let i=0;i<perf.recent.length;i++) ctx.fillText(perf.recent[i], 12, 142 + i*13);
     ctx.restore();
   }
 
@@ -2207,12 +2300,16 @@
     if(!lastTime) lastTime = ts;
     const dt = Math.min(0.05, (ts-lastTime)/1000);
     lastTime = ts;
+    // 跳ねた原因の切り分けに使う。間隔(ts の差)より前にこのフレームの
+    // 「自分で使った時間」を確定させたいので、計測は draw のあとに置く
     if(DEBUG) perfSample(ts);
+    const w0 = DEBUG ? performance.now() : 0;
     // 横向きの間は時間を進めない。飛行中に持ち替えただけで死ぬのは理不尽なので、
     // 縦へ戻すと止まったところから続く。dt は毎フレーム捨てているので、
     // 戻した瞬間にまとめて進むこともない
     if(!rotateMQ.matches) update(dt);
     draw();
+    if(DEBUG) perf.work = performance.now() - w0;
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
