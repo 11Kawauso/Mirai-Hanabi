@@ -104,6 +104,7 @@
   // 尾のグラデーションを作っておくローカル座標の長さ。噴射が抜けた平常時の
   // 長さに合わせてあるので、飛んでいる間はほぼ等倍で当たる
   const TAIL_BASE = 14;
+  const HOLO_STEPS = 24; // ホログラムの尾で使う色相の段数
   const TAIL_STEP = 0.05;
   let burstTailStep = TAIL_STEP; // 玉ごとに刻み幅を変える
 
@@ -705,6 +706,37 @@
         { minH: 550,  top:'#07223f', bottom:'#1c5f6e', grid:0.35,stars:0.55 },
         { minH: 1000, top:'#04182f', bottom:'#12455f', grid:0.7, stars:0.75 },
         { minH: 1600, top:'#010a18', bottom:'#062033', grid:1.0, stars:1.0  }
+      ] },
+
+    // UR。夜明けの空。上がるほど地平が焼けていく
+    { id:'akatsuki', name:'暁', gacha:true,
+      star:'#fff0e0', grid:'#ff8a3d', city:'#0a0510', window:'rgba(255,200,140,0.7)',
+      stages:[
+        { minH: 0,    top:'#0a0714', bottom:'#2a1420', grid:0.0, stars:0.15 },
+        { minH: 120,  top:'#140a1e', bottom:'#4a1f2a', grid:0.0, stars:0.3  },
+        { minH: 550,  top:'#1e0e28', bottom:'#7a3030', grid:0.35,stars:0.55 },
+        { minH: 1000, top:'#26122e', bottom:'#a8503a', grid:0.7, stars:0.75 },
+        { minH: 1600, top:'#2e1636', bottom:'#d98a4a', grid:1.0, stars:1.0  }
+      ] },
+
+    // シークレット。他の背景は 1,600m で色が止まるが、これだけは
+    // 30,000m まで変わり続ける。夜の地上から成層圏、そして宇宙の際まで。
+    // 「どこまで届くか」を空の色そのもので見せるための一枚
+    { id:'tengai', name:'天涯', gacha:true, secret:true,
+      star:'#ffffff', grid:'#7bdcff', city:'#010104', window:'rgba(210,225,255,0.6)',
+      stages:[
+        { minH: 0,     top:'#03060f', bottom:'#0b1226', grid:0.0, stars:0.15 },
+        { minH: 120,   top:'#050a1c', bottom:'#131c3a', grid:0.0, stars:0.3  },
+        { minH: 550,   top:'#0a0d2a', bottom:'#22224e', grid:0.35,stars:0.55 },
+        { minH: 1000,  top:'#080a26', bottom:'#2a2050', grid:0.7, stars:0.75 },
+        { minH: 1600,  top:'#05061a', bottom:'#1d1440', grid:1.0, stars:1.0  },
+        // ここから先が他の背景には無い領域
+        { minH: 3000,  top:'#04050f', bottom:'#14103a', grid:1.0, stars:1.0  },
+        { minH: 6000,  top:'#020308', bottom:'#0a1030', grid:1.0, stars:1.0  },
+        { minH: 10000, top:'#010206', bottom:'#05202c', grid:1.0, stars:1.0  }, // 下端に緑が差す
+        { minH: 16000, top:'#000104', bottom:'#063028', grid:1.0, stars:1.0  }, // オーロラ
+        { minH: 24000, top:'#000103', bottom:'#1a0a30', grid:1.0, stars:1.0  }, // 紫に転じる
+        { minH: 32000, top:'#000000', bottom:'#0a1a2e', grid:1.0, stars:1.0  }  // 地球の縁の光だけ
       ] }
   ];
 
@@ -720,7 +752,48 @@
       from:'rgba(255,240,190,0.9)', to:'rgba(255,140,20,0)',
       width:5, lenScale:1.45, sparkRate:0.03,
       spark:['#fff6d8','#ffe08a','#ffd23f','#ffb14a'],
-      swatch:'linear-gradient(180deg,#fff6d8,#ffd23f 45%,rgba(255,140,20,0))' }
+      swatch:'linear-gradient(180deg,#fff6d8,#ffd23f 45%,rgba(255,140,20,0))' },
+
+    // SR。泡だけは重力を逆にして、粒が下ではなく上へ抜けていく。
+    // 水中を昇っているように見えるので、他の尾と一番はっきり区別が付く
+    { id:'awa', name:'泡', gacha:true,
+      from:'rgba(190,240,255,0.85)', to:'rgba(60,160,220,0)',
+      width:4, lenScale:1.1, sparkRate:0.05,
+      sparkSize:1.8, sparkGrav:-90, sparkVy:-10, sparkDrift:26, sparkSpread:12, sparkLife:0.8,
+      spark:['#dff6ff','#a8e4ff','#7bdcff','#ffffff'],
+      swatch:'linear-gradient(180deg,#dff6ff,#7bdcff 50%,rgba(60,160,220,0))' },
+
+    // SR。細かい粒がゆっくり散る。金糸より軽く、白く光る
+    { id:'hoshikuzu', name:'星屑', gacha:true,
+      from:'rgba(255,253,240,0.9)', to:'rgba(160,180,255,0)',
+      width:3, lenScale:1.2, sparkRate:0.026,
+      sparkSize:0.9, sparkGrav:120, sparkDrift:44, sparkLife:0.55,
+      spark:['#ffffff','#fff3b0','#dbe4f5','#a5b4fc'],
+      swatch:'linear-gradient(180deg,#ffffff,#fff3b0 45%,rgba(160,180,255,0))' },
+
+    // SR。横へ大きく流れながらゆっくり落ちる。舞い落ちる葉のように見せる
+    { id:'wakaba', name:'若葉', gacha:true,
+      from:'rgba(200,255,190,0.85)', to:'rgba(40,140,60,0)',
+      width:4, lenScale:1.15, sparkRate:0.05,
+      sparkSize:1.5, sparkGrav:70, sparkDrift:110, sparkVy:5, sparkLife:0.9,
+      spark:['#d9f99d','#a3e635','#65a30d','#ecfccb'],
+      swatch:'linear-gradient(180deg,#d9f99d,#65a30d 55%,rgba(40,140,60,0))' },
+
+    // UR。ロケットの白煙。粒が大きくゆっくり、ほとんど落ちずに漂って残る
+    { id:'hakuen', name:'白煙', gacha:true,
+      from:'rgba(240,244,255,0.75)', to:'rgba(150,160,180,0)',
+      width:9, lenScale:1.6, sparkRate:0.04,
+      sparkSize:3.2, sparkGrav:18, sparkDrift:34, sparkVy:8, sparkLife:1.1,
+      spark:['#f4f7ff','#dfe5f0','#c6cede','#ffffff'],
+      swatch:'linear-gradient(180deg,#ffffff,#dfe5f0 50%,rgba(150,160,180,0))' },
+
+    // シークレット。尾の色が虹を巡り続ける。色が毎フレーム変わるので、
+    // 使い回しの帯を色の段数ぶん先に作っておく（fx:'holo' で切り替える）
+    { id:'holo', name:'ホログラム', gacha:true, secret:true, fx:'holo',
+      width:6, lenScale:1.35, sparkRate:0.028,
+      sparkSize:1.3, sparkGrav:150, sparkDrift:50, sparkLife:0.6,
+      spark:['#ff2fb0','#ffd23f','#5eead4','#29f1ff','#7b2ff7','#ffffff'],
+      swatch:'linear-gradient(180deg,#ff2fb0,#ffd23f 30%,#29f1ff 60%,rgba(123,47,247,0))' }
   ];
 
   const findBy = (list, id) => list.find(x => x.id === id) || list[0];
@@ -1335,7 +1408,8 @@
     for(let i=muzzleParticles.length-1;i>=0;i--){
       const p = muzzleParticles[i];
       p.x += p.vx*dt; p.y += p.vy*dt;
-      p.vy += 260*dt;
+      // 粒ごとの重力。既定は下へ落ちるが、泡のトレイルだけは負の値で昇る
+      p.vy += (p.g === undefined ? 260 : p.g)*dt;
       p.life -= dt;
       if(p.life <= 0) muzzleParticles.splice(i,1);
     }
@@ -1386,18 +1460,24 @@
         }
       }
 
-      // 火の粉を落とすトレイル（金糸）。万華と重ねて着けても、色が別なので
-      // どちらの粉かは見て分かる。別タイマーにしてあるので密度も干渉しない
+      // 粒をこぼすトレイル。万華と重ねて着けても、色が別なのでどちらの粉かは
+      // 見て分かる。別タイマーにしてあるので密度も干渉しない。
+      // 落ち方・大きさ・散り方はトレイルごとに変えられる（泡は昇る、など）
       const tr = trail();
       if(tr.sparkRate){
         trailSparkTimer -= dt;
         while(trailSparkTimer <= 0){
           trailSparkTimer += tr.sparkRate;
+          const sz = tr.sparkSize || 1;
+          const life = tr.sparkLife || 0.4;
           muzzleParticles.push({
-            x: player.x + (Math.random()-0.5)*8, y: player.y + player.r*1.6,
-            vx: (Math.random()-0.5)*30, vy: 20 + Math.random()*60,
-            r: 1 + Math.random()*1.6,
-            life: 0.4 + Math.random()*0.35, maxLife: 0.75,
+            x: player.x + (Math.random()-0.5)*(tr.sparkSpread || 8),
+            y: player.y + player.r*1.6,
+            vx: (Math.random()-0.5)*(tr.sparkDrift || 30),
+            vy: (tr.sparkVy === undefined ? 20 : tr.sparkVy) + Math.random()*60,
+            r: sz + Math.random()*sz*1.6,
+            g: tr.sparkGrav,
+            life: life + Math.random()*0.35, maxLife: life + 0.35,
             color: tr.spark[Math.floor(Math.random()*tr.spark.length)]
           });
         }
@@ -2051,16 +2131,34 @@
     // 原点まわりの固定長で一本だけ作っておき、translate/scale で当てはめる。
     // 縦だけ伸ばしても線の太さ（横方向）は変わらないので見た目は同じ。
     // 色の出どころ（トレイル定義、既定なら玉）に持たせるので、装備ごとに一本で済む
-    const src = tr.from ? tr : sk;
-    if(!src._tailGrad){
-      src._tailGrad = ctx.createLinearGradient(0, 0, 0, TAIL_BASE);
-      src._tailGrad.addColorStop(0, tr.from || sk.trailFrom);
-      src._tailGrad.addColorStop(1, tr.to   || sk.trailTo);
+    let grad;
+    if(tr.fx === 'holo'){
+      // 虹を巡る尾。毎フレーム作ると元の木阿弥なので、色相を刻んだ帯を
+      // 先に作っておき、時間で選ぶだけにする
+      if(!tr._holo){
+        tr._holo = [];
+        for(let i=0;i<HOLO_STEPS;i++){
+          const h = i*360/HOLO_STEPS;
+          const g = ctx.createLinearGradient(0, 0, 0, TAIL_BASE);
+          g.addColorStop(0, `hsl(${h},100%,74%)`);
+          g.addColorStop(1, `hsla(${(h+70)%360},100%,58%,0)`);
+          tr._holo.push(g);
+        }
+      }
+      grad = tr._holo[Math.floor(elapsed*HOLO_STEPS*0.5) % HOLO_STEPS];
+    } else {
+      const src = tr.from ? tr : sk;
+      if(!src._tailGrad){
+        src._tailGrad = ctx.createLinearGradient(0, 0, 0, TAIL_BASE);
+        src._tailGrad.addColorStop(0, tr.from || sk.trailFrom);
+        src._tailGrad.addColorStop(1, tr.to   || sk.trailTo);
+      }
+      grad = src._tailGrad;
     }
     ctx.save();
     ctx.translate(player.x, tailTop);
     ctx.scale(1, tailLen / TAIL_BASE);
-    ctx.strokeStyle = src._tailGrad;
+    ctx.strokeStyle = grad;
     ctx.lineWidth = (tr.width || 3) + boost*2;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -2445,14 +2543,35 @@
     { id:'skin:kome', kind:'skin', rank:'SECRET', name:'米百俵',
       desc:'長岡の「米百俵花火・尺玉100連発」。開いたあとも、小さな玉が次々に咲き続けます。スタート画面の「花火スキン」から選べます。' },
 
+    { id:'bg:tengai', kind:'bg', rank:'SECRET', name:'天涯',
+      desc:'他の空は1,600mで色が止まりますが、これだけは30,000mまで変わり続けます。夜の地上から成層圏、そして宇宙の際まで。' },
+
+    { id:'trail:holo', kind:'trail', rank:'SECRET', name:'ホログラム',
+      desc:'尾の色が虹を巡り続けます。どの玉に着けても、その玉の色とは無関係に光ります。' },
+
     { id:'skin:shirogiku', kind:'skin', rank:'UR', name:'白菊',
       desc:'長岡花火が本編の前に上げる、慰霊の白一色の三尺玉。スタート画面の「花火スキン」から選べます。' },
+
+    { id:'bg:akatsuki', kind:'bg', rank:'UR', name:'暁',
+      desc:'夜明けの空。上がるほど地平が焼けて、朝焼けの色に変わっていきます。' },
+
+    { id:'trail:hakuen', kind:'trail', rank:'UR', name:'白煙',
+      desc:'ロケットの白煙。太く長い尾を引き、大きな煙の粒がほとんど落ちずに漂って残ります。' },
 
     { id:'bg:shinano', kind:'bg', rank:'SR', name:'信濃川',
       desc:'玉が上がる河川敷の空。夜空が藍と碧に変わり、地平のルーラーが金になります。' },
 
     { id:'trail:kinshi', kind:'trail', rank:'SR', name:'金糸',
       desc:'太く長い金の尾。飛んでいるあいだ、ずっと火の粉を落とし続けます。' },
+
+    { id:'trail:awa', kind:'trail', rank:'SR', name:'泡',
+      desc:'水色の泡が、落ちるのではなく上へ抜けていきます。水の中を昇っているように見えます。' },
+
+    { id:'trail:hoshikuzu', kind:'trail', rank:'SR', name:'星屑',
+      desc:'細かく白い粒が、広がりながらゆっくり散ります。金糸より軽い尾です。' },
+
+    { id:'trail:wakaba', kind:'trail', rank:'SR', name:'若葉',
+      desc:'緑の粒が横へ大きく流れながら落ちます。舞い落ちる葉のような尾です。' },
 
     // key は手持ちの保存先。スキップ券は高度、それ以外は名前を使う
     { id:'ticket:x2', kind:'ticket', rank:'R', key:X2_KEY, name:'pt2倍券',
@@ -2610,6 +2729,7 @@
     stockBg.textContent = '';
     for(const g of BACKGROUNDS){
       const ok = !g.gacha || has('bg:' + g.id);
+      if(g.secret && !ok) continue; // シークレットは持つまで枠も出さない
       stockBg.appendChild(gearButton(BACKGROUNDS, g, ok, background().id === g.id, () => {
         bgId = g.id; save(STORE_BG, bgId); gearChanged(); renderStock();
       }));
@@ -2617,6 +2737,7 @@
     stockTrail.textContent = '';
     for(const g of TRAILS){
       const ok = !g.gacha || has('trail:' + g.id);
+      if(g.secret && !ok) continue;
       stockTrail.appendChild(gearButton(TRAILS, g, ok, trail().id === g.id, () => {
         trailId = g.id; save(STORE_TRAIL, trailId); gearChanged(); renderStock();
       }));
