@@ -14,6 +14,30 @@
   const BOOST_DURATION = 1.2;   // how long the muzzle kick keeps pushing after firing
   const BOOST_EXTRA = 340;      // px/s piled on top of cruise speed at t=0, eased to 0
 
+  // ---- スキップ券の駆け上がり -------------------------------------------------
+  // 券を使っても打ち上げは地上から。砲口から上がったあと、券の高度まで一気に
+  // 駆け上がってそこで巡航に落ち着く。空中にいきなり湧くより、高度を「飛ばした」
+  // ことが見て分かる
+  const SKIP_WARP_MIN = 1.05;    // 秒。500m でもこれだけは掛ける
+  const SKIP_WARP_ADD = 0.5;     // 距離ぶんの上乗せ。SKIP_WARP_REF で最大
+  const SKIP_WARP_REF = 2000;    // ここで伸び切る（＝いまの券の最長）
+  // 速度の形は smootherstep の微分。両端がちょうど 0 になるので、打ち上げから
+  // 繋いだ瞬間と巡航へ着地する瞬間に世界が止まって見える。ごく薄く一定成分を
+  // 混ぜて、どちらの継ぎ目も動いたまま渡す
+  const SKIP_WARP_LINEAR = 0.08;
+  const SKIP_WARP_PEAK = 1.875;  // 30*t^2*(1-t)^2 の最大値。強さの正規化に使う
+  // 速度線を実速度で流すと 1 フレームに数百 px 飛んで、線ではなく点滅に見える。
+  // 流す速さは頭打ちにして、代わりに線を伸ばして速さを出す
+  const SKIP_LINE_CAP = 1400;
+  const SKIP_LINE_STRETCH = 3.4;
+  // 地平線の丸め。貼り絵は topY が 1px 動くたびに引き直すので、warp 中の
+  // 速さ（16m で 1px ＝ 秒間 80px 前後）だと数フレームに1回引き直すことになる。
+  // 48 本の斜め線を引く処理なので、そのままでは 240Hz の持ち時間を食い潰す
+  const SKIP_GRID_STEP = 8;
+  // warp 中にトレイルの粒を下へ送る量。実速度に比例させると粒まで点滅するので、
+  // 見て流れが分かるだけの一定量に留める
+  const SKIP_SPARK_CARRY = 420;
+
   // Climb rate. Tuned so the speed is still creeping up all the way to the top
   // of the scale instead of pinning a tenth of the way in.
   const SCROLL_BASE = 90;
@@ -844,7 +868,7 @@
     return stageOut;
   }
 
-  let state = 'start'; // start | playing | exploding | result
+  let state = 'start'; // start | launching | skipping | playing | exploding | result
   let heightM = 0;
   let hudShownM = -1;  // HUD に今出ている整数メートル。変わったときだけ書き換える
   let runStartM = 0;   // スキップ券で飛ばした分。ポイントはここからの差で数える
@@ -877,6 +901,10 @@
   // スティックの倒し具合。-1〜1 で、ボタン/キーと同じ最高速度に正規化して使う
   let stickX = 0, stickY = 0;
   let launchTimer = 0;
+  // 券で駆け上がる区間。skipTargetM が 0 なら普通の打ち上げ
+  let skipTargetM = 0, skipFromM = 0, skipTimer = 0, skipDur = 0;
+  let warpAmt = 0;      // 0..1 駆け上がりの強さ。速度線と尾の伸びに掛ける
+  let warpStretch = 1;  // 速度線を何倍に伸ばして描くか。使い回しの判定と揃える
   let muzzleParticles = [];
   let cloudWallTimer = 6;
   let wallPending = false; // a wall is due and is waiting for a clear corridor
@@ -1007,9 +1035,9 @@
   function reset(startM, useX2){
     const from = Math.max(0, startM || 0);
     runX2 = !!useX2;
-    // 券で飛んだ先は空の途中で、そこに砲台は無い。砲口から上がる芝居を
-    // 挟まず、いきなり飛行中から始める
-    state = from > 0 ? 'playing' : 'launching';
+    // 券を使っても打ち上げは必ず地上から。砲口から上がり切ったところで
+    // 'skipping' に移り、券の高度まで駆け上がってから飛行が始まる
+    state = 'launching';
     // 引き出しを開いたまま打ち上がると盤が見えないので必ず畳む
     setPanel(null);
     closeGacha();
@@ -1017,8 +1045,15 @@
     bestBeforeRun = bestHeightM;
     skinUnlockMsg.classList.add('hidden');
     launchTimer = 0;
+    // ポイントは「自力で飛んだぶん」なので、券の高度は最初から差し引いておく。
+    // 駆け上がりで heightM は 0 から from まで動くが、その差は 0 のまま
     runStartM = from;
-    heightM = from;
+    heightM = 0;
+    skipTargetM = from;
+    skipTimer = 0;
+    skipDur = 0;
+    warpAmt = 0;
+    warpStretch = 1;
     scrollSpeed = SCROLL_BASE;
     spawnTimer = 1.0;
     cloudWallTimer = 5 + Math.random()*3;
@@ -1032,29 +1067,27 @@
     particles = [];
     muzzleParticles = [];
     volleyQueue.length = 0; // 前の回の追い咲きが残っていると次の飛行中に咲く
-    // 難易度の時計は開始高度ぶん進めておく。これで風・障害物の密度・
-    // スクロール速度が「そこまで自力で飛んできた」状態と揃う
-    elapsed = timeForHeight(from);
-    // 砲口の蹴りは地上から上げたときだけ。券のときは使い切った状態にして、
-    // 最初からその高度の巡航速度で流れ始める
-    boostTime = from > 0 ? BOOST_DURATION : 0;
+    // 難易度の時計はここでは 0。券を使った回は、駆け上がりが着いた時点で
+    // timeForHeight(from) まで飛ばす。そこから先は風・障害物の密度・
+    // スクロール速度が「自力でそこまで飛んできた」状態と揃う
+    elapsed = 0;
+    boostTime = 0;
     boost = 0;
     player.x = GAME_W/2;
-    player.y = from > 0 ? PLAYER_Y : LAUNCH_Y;
+    player.y = LAUNCH_Y;
     player.vx = 0;
     windSpeed = 0; // every run starts calm, then builds once the gauge appears
     windTarget = 0;
     windTimer = 0;
-    // 券で飛んだ先はもう風の吹く高さなので、ゲージは畳んだ状態から出し直さない
-    windVisible = from > 0 ? 1 : 0;
+    windVisible = 0;
     windDebrisTimer = 0.4;
     scatterSpeedLines();
     scatterWindStreaks();
-    hudShownM = Math.floor(from);
-    hudHeight.textContent = hudShownM + 'm'; // else the previous run's height lingers through the launch animation
+    hudShownM = 0;
+    hudHeight.textContent = '0m'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
     resultScreen.classList.add('hidden');
-    if(from === 0) spawnMuzzleFlash(); // 空中スタートに砲口の火花は出ない
+    spawnMuzzleFlash();
   }
 
   function spawnMuzzleFlash(){
@@ -1422,19 +1455,67 @@
       player.x = GAME_W/2 + Math.sin(t*10) * (1-t) * 4;
       if(t >= 1){
         player.y = PLAYER_Y;
-        state = 'playing';
+        if(skipTargetM > heightM){
+          // 砲口から出たところで駆け上がりに入る。距離が長いほど少しだけ長く
+          // 見せるが、比例させると 2000m が間延びするので頭打ちにする
+          state = 'skipping';
+          skipFromM = heightM;
+          skipTimer = 0;
+          skipDur = SKIP_WARP_MIN
+            + SKIP_WARP_ADD * Math.min(1, (skipTargetM - skipFromM)/SKIP_WARP_REF);
+        } else {
+          state = 'playing';
+        }
       }
     }
 
     // The world scrolls from the moment of firing, launch animation included.
     // Without this the first 0.85s is a dead-still screen and the shot reads as
     // floating rather than being flung out of a cannon.
-    if(state === 'launching' || state === 'playing'){
+    const flying = state === 'launching' || state === 'playing' || state === 'skipping';
+    if(state === 'skipping'){
+      skipTimer += dt;
+      const t = Math.min(1, skipTimer/skipDur);
+      // 位置は曲線で直に決める。速度を積むと端数が溜まって目標高度をきっかり
+      // 踏めず、記録が 1000m ではなく 998m になったりする
+      const s = t*t*t*(t*(6*t - 15) + 10);              // smootherstep
+      const prev = heightM;
+      heightM = skipFromM + (skipTargetM - skipFromM)
+        * ((1 - SKIP_WARP_LINEAR)*s + SKIP_WARP_LINEAR*t);
+      // 速度線・尾・貼り絵の刻みは全部この実速度から決まる
+      if(dt > 0) scrollSpeed = (heightM - prev)*PIXELS_PER_METER/dt;
+      // 山を 1 とした強さ。速度線の伸びと粒の送りに使う
+      const v = (1 - SKIP_WARP_LINEAR)*30*t*t*(1-t)*(1-t) + SKIP_WARP_LINEAR;
+      warpAmt = clamp(v/SKIP_WARP_PEAK, 0, 1);
+      // boost は「巡航よりどれだけ速いか」。飛行中と意味を揃えておくと、
+      // 速度線の濃さも尾の長さもそのまま同じ式で描ける。
+      // warpAmt をそのまま入れると、山を 1 に正規化してあるせいで終わりぎわに
+      // ほぼ 0 まで落ち、蹴りへ渡した瞬間に尾が伸び直して跳ねる
+      const cruise = Math.min(SCROLL_CAP, SCROLL_BASE + timeForHeight(heightM)*SCROLL_RATE);
+      boost = clamp((scrollSpeed - cruise)/BOOST_EXTRA, 0, 1);
+      if(t >= 1){
+        heightM = skipTargetM;
+        elapsed = timeForHeight(skipTargetM);
+        // 駆け上がりの終速をそのまま砲口の蹴りへ引き継ぐ。いまの boost に
+        // 当たる残り時間を逆算しておけば、速度も尾の長さも継ぎ目なく巡航へ
+        // 落ちていく。0 に戻すと、短い券（500m）では逆に加速してしまう
+        boostTime = BOOST_DURATION * (1 - Math.sqrt(boost));
+        warpAmt = 0;
+        skipTargetM = 0;
+        state = 'playing';
+      }
+    } else if(state === 'launching' || state === 'playing'){
       boostTime += dt;
       boost = Math.pow(1 - Math.min(1, boostTime/BOOST_DURATION), 2); // ease-out
       // speed increases very gradually with time survived, not with height directly
       scrollSpeed = Math.min(SCROLL_CAP, SCROLL_BASE + elapsed*SCROLL_RATE) + boost*BOOST_EXTRA;
       heightM += (scrollSpeed*dt) / PIXELS_PER_METER;
+    } else {
+      boost = 0;
+    }
+
+    if(flying){
+      warpStretch = 1 + warpAmt*(SKIP_LINE_STRETCH - 1);
       // 表示は整数メートル。低速なら 1 秒に 20 回ほどしか変わらないのに、
       // 毎フレーム書き込むと文字列と DOM 更新をそのぶん捨てることになる
       const shown = Math.floor(heightM);
@@ -1442,6 +1523,11 @@
         hudShownM = shown;
         hudHeight.textContent = shown + 'm';
       }
+
+      // 駆け上がり中は世界が桁違いに速く流れる。粒だけその場に残ると玉が止まって
+      // 見えるので、下へ送ってやる。実速度に比例させると粒まで点滅するので、
+      // 流れが分かるだけの一定量に留める
+      const carry = warpAmt * SKIP_SPARK_CARRY;
 
       // finale skin leaves a continuous spark trail (reuses the muzzle sparks,
       // which already animate and fall in every state)
@@ -1452,7 +1538,7 @@
           const pal = skin().palette;
           muzzleParticles.push({
             x: player.x + (Math.random()-0.5)*10, y: player.y + player.r,
-            vx: (Math.random()-0.5)*40, vy: 30 + Math.random()*50,
+            vx: (Math.random()-0.5)*40, vy: carry + 30 + Math.random()*50,
             r: 1.2 + Math.random()*1.8,
             life: 0.32 + Math.random()*0.22, maxLife: 0.54,
             color: pal[Math.floor(Math.random()*pal.length)]
@@ -1474,7 +1560,7 @@
             x: player.x + (Math.random()-0.5)*(tr.sparkSpread || 8),
             y: player.y + player.r*1.6,
             vx: (Math.random()-0.5)*(tr.sparkDrift || 30),
-            vy: (tr.sparkVy === undefined ? 20 : tr.sparkVy) + Math.random()*60,
+            vy: carry + (tr.sparkVy === undefined ? 20 : tr.sparkVy) + Math.random()*60,
             r: sz + Math.random()*sz*1.6,
             g: tr.sparkGrav,
             life: life + Math.random()*0.35, maxLife: life + 0.35,
@@ -1483,15 +1569,18 @@
         }
       }
 
+      // 流す速さは頭打ち。実速度（駆け上がりの山で 1 万 px/s 超）で動かすと
+      // 1 フレームに数百 px 飛んで、線ではなく点滅にしか見えない。
+      // 使い回しの判定は伸ばしたあとの長さで見る。素の長さで捨てると、
+      // 伸びている尻の部分が画面に残ったまま消えてしまう
+      const lineSpd = Math.min(scrollSpeed, SKIP_LINE_CAP);
       for(const l of speedLines){
-        l.y += scrollSpeed * l.spd * dt;
-        if(l.y - l.len > GAME_H){ // recycle off the top once it has fully passed
+        l.y += lineSpd * l.spd * dt;
+        if(l.y - l.len*warpStretch > GAME_H){ // recycle off the top once it has fully passed
           l.y = -Math.random()*120;
           l.x = Math.random()*GAME_W;
         }
       }
-    } else {
-      boost = 0;
     }
 
     if(state === 'playing'){
@@ -1788,11 +1877,13 @@
     gr.stroke();
   }
 
-  function blitGrid(topY, offset, color, amt){
+  function blitGrid(topY, offset, color, amt, step){
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     // 1px 刻み。地平線は 5,450m かけて 344px しか動かないので、作り直しは
-    // 16m に1回ほど。240Hz なら「毎フレーム引く」の 200 分の 1 で済む
-    const top = Math.round(topY);
+    // 16m に1回ほど。240Hz なら「毎フレーム引く」の 200 分の 1 で済む。
+    // ただし券の駆け上がりだけは秒間 80px 前後で動くので、その刻みのままだと
+    // 数フレームに1回引き直すことになる。呼び側から刻みを粗くしてもらう
+    const top = Math.round(topY/(step || 1))*(step || 1);
     if(top !== gridKeyTop || color !== gridKeyColor || dpr !== gridKeyDpr){
       gridKeyTop = top; gridKeyColor = color; gridKeyDpr = dpr;
       buildGrid(top, color, dpr);
@@ -1880,7 +1971,8 @@
         // 平常時。線の絵は地平線(topY)が動かないかぎり同じなので、裏の canvas に
         // 描いておいて貼るだけにする。毎フレーム 48 本の斜め線を引き直すのが
         // カクつきの原因だった（240Hz だと 1 フレーム 4ms しか無い）
-        blitGrid(topY, offset, bg.grid, gridAmt);
+        blitGrid(topY, offset, bg.grid, gridAmt,
+          state === 'skipping' ? SKIP_GRID_STEP : 1);
       }
       ctx.restore();
     }
@@ -1933,8 +2025,10 @@
     ctx.save();
     for(const l of speedLines){
       // tapered so each streak reads as a trail rather than a floating stick
+      // 駆け上がり中は流す速さを頭打ちにしてあるぶん、線を伸ばして速さを出す
+      const len = l.len * warpStretch;
       ctx.globalAlpha = boost * l.alpha;
-      ctx.drawImage(speedSprite, l.x-1, l.y - l.len, 2, l.len);
+      ctx.drawImage(speedSprite, l.x-1, l.y - len, 2, len);
     }
     ctx.restore();
   }
@@ -2125,7 +2219,9 @@
     // exhaust trail, stretched while the muzzle kick is still pushing.
     // 装備中のトレイルが色と太さを上書きする。既定は玉自身の色をそのまま使う
     const tr = trail();
-    const tailLen = (14 + boost*54) * (tr.lenScale || 1);
+    // 駆け上がり中はさらに引き伸ばす。玉は画面に固定されているので、
+    // 尾の長さが「いまどれだけ速いか」を出せる数少ない手がかりになる
+    const tailLen = (14 + boost*54 + warpAmt*90) * (tr.lenScale || 1);
     const tailTop = player.y + player.r;
     // グラデーションは座標を抱え込むので、玉が動くたびに作り直していた。
     // 原点まわりの固定長で一本だけ作っておき、translate/scale で当てはめる。
@@ -2426,7 +2522,8 @@
       const d = ts - perf.prev;
       perf.ema += (d - perf.ema) * 0.08;
       if(d > perf.worst) perf.worst = d;
-      if(d > SPIKE_MS && state === 'playing'){
+      // 駆け上がりは背景が一番速く動く区間なので、詰まるならまずここに出る
+      if(d > SPIKE_MS && (state === 'playing' || state === 'skipping')){
         perf.spikes++;
         const drop = (perf.heap - heap) / 1048576;
         perf.recent.unshift(
@@ -3257,7 +3354,8 @@
   let openPanel = null; // null | 'guide' | 'ranking'
 
   // Opening a drawer hides the board, so a run in progress would be lost.
-  const inFlight = () => state === 'launching' || state === 'playing' || state === 'exploding';
+  const inFlight = () =>
+    state === 'launching' || state === 'skipping' || state === 'playing' || state === 'exploding';
 
   function syncPanelA11y(){
     const drawer = panelMQ.matches;
