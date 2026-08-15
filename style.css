@@ -319,6 +319,19 @@ canvas{
 }
 /* 問屋は品書きなので常に上から読ませる。中央寄せの詰め物は要らない */
 #gacha-screen::before, #gacha-screen::after{ display:none; }
+/* OS 既定のバーは矢印付きで浮いて見えるので、解説・ランキングと同じ細身に
+   揃える。品書きは長いので、消さずに「まだ下がある」ことは伝える */
+#gacha-screen{
+  scrollbar-width:thin;
+  scrollbar-color:rgba(255,210,63,0.45) transparent;
+}
+#gacha-screen::-webkit-scrollbar{ width:5px; }
+#gacha-screen::-webkit-scrollbar-track{ background:transparent; }
+#gacha-screen::-webkit-scrollbar-thumb{
+  background:rgba(255,210,63,0.4);
+  border-radius:3px;
+}
+#gacha-screen::-webkit-scrollbar-thumb:hover{ background:rgba(255,210,63,0.65); }
 .gacha-x{
   position:absolute; top:10px; right:10px;
   appearance:none; cursor:pointer;
@@ -385,9 +398,21 @@ canvas{
   font-size:10px; color:rgba(255,210,63,0.75);
 }
 .gacha-rates{ margin:0; padding:0; list-style:none; }
+/* レア度の見出し。ここに枠の合計を出し、下にその内訳がぶら下がる */
+.gacha-rate-head{
+  display:flex; align-items:center; gap:8px;
+  margin:14px 0 5px;
+  padding:0 8px 5px;
+  border-bottom:1px solid rgba(238,242,255,0.12);
+  font-size:11px; font-weight:800;
+}
+.gacha-rates > .gacha-rate-head:first-child{ margin-top:0; }
+.gacha-rate-head .rate-name{ color:rgba(238,242,255,0.95); letter-spacing:0.1em; }
+.gacha-rate-head .rate-pct{ color:#fff; font-weight:800; font-size:12px; }
 .gacha-rate{
   display:flex; align-items:center; gap:8px;
-  padding:6px 8px; border-radius:8px;
+  /* 見出しの名前の真下に揃える。8(枠) + 26(バッジ) + 8(間隔) = 42 */
+  padding:6px 8px 6px 42px; border-radius:8px;
   background:rgba(238,242,255,0.04);
   font-size:11px;
 }

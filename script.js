@@ -2676,27 +2676,55 @@
     return el;
   }
 
+  // 0.333% のような細かい値も 0.8% のような切りのいい値も素直に出す。
+  // 一律に桁を揃えると 25.000% のような読みにくい表記になる
+  const ratePct = (v) => (v*100).toFixed(3).replace(/\.?0+$/, '') + '%';
+
+  // 品書きに出す順。格上から並べる（シークレットはそもそも載せない）
+  const RATE_ORDER = ['UR', 'SR', 'R', 'N'];
+
   function renderRates(){
     if(!gachaRatesEl) return;
     gachaRatesEl.textContent = '';
     const odds = gachaOdds();
     const pool = GACHA_POOL.filter(inPool);
-    for(const e of GACHA_POOL){
+    // レア度ごとにまとめる。見出しにそのレア度の合計、その下に品ごとの内訳。
+    // 「UR は 1%、その中で3つが等分」という仕組みが表のまま伝わる
+    for(const rank of RATE_ORDER){
       // シークレットは品書きに載せない。載っていない 0.5% は、表の合計が
       // 100% に届かないことでだけ気配が残る
-      if(RANKS[e.rank].hidden) continue;
-      const gone = !inPool(e);
-      const li = document.createElement('li');
-      li.className = 'gacha-rate' + (gone ? ' gone' : '');
-      li.appendChild(rankBadge(e.rank));
-      const n = document.createElement('span');
-      n.className = 'rate-name';
-      n.textContent = e.name;
-      const p = document.createElement('span');
-      p.className = 'rate-pct';
-      p.textContent = gone ? '獲得済み' : ((odds.get(e) || 0)*100).toFixed(1) + '%';
-      li.append(n, p);
-      gachaRatesEl.appendChild(li);
+      if(RANKS[rank].hidden) continue;
+      const items = GACHA_POOL.filter(e => e.rank === rank);
+      if(!items.length) continue;
+
+      let sum = 0;
+      for(const e of items) sum += odds.get(e) || 0;
+
+      const head = document.createElement('li');
+      head.className = 'gacha-rate-head';
+      head.appendChild(rankBadge(rank));
+      const hn = document.createElement('span');
+      hn.className = 'rate-name';
+      hn.textContent = RANKS[rank].name;
+      const hp = document.createElement('span');
+      hp.className = 'rate-pct';
+      hp.textContent = ratePct(sum);
+      head.append(hn, hp);
+      gachaRatesEl.appendChild(head);
+
+      for(const e of items){
+        const gone = !inPool(e);
+        const li = document.createElement('li');
+        li.className = 'gacha-rate' + (gone ? ' gone' : '');
+        const n = document.createElement('span');
+        n.className = 'rate-name';
+        n.textContent = e.name;
+        const p = document.createElement('span');
+        p.className = 'rate-pct';
+        p.textContent = gone ? '獲得済み' : ratePct(odds.get(e) || 0);
+        li.append(n, p);
+        gachaRatesEl.appendChild(li);
+      }
     }
     if(gachaPityEl){
       const left = PITY_MAX - pityCount;
