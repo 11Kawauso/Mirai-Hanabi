@@ -15,17 +15,24 @@
   const BOOST_EXTRA = 340;      // px/s piled on top of cruise speed at t=0, eased to 0
 
   // ---- スキップ券の駆け上がり -------------------------------------------------
-  // 券を使っても打ち上げは地上から。砲口から上がったあと、券の高度まで一気に
-  // 駆け上がってそこで巡航に落ち着く。空中にいきなり湧くより、高度を「飛ばした」
-  // ことが見て分かる
-  const SKIP_WARP_MIN = 1.05;    // 秒。500m でもこれだけは掛ける
-  const SKIP_WARP_ADD = 0.5;     // 距離ぶんの上乗せ。SKIP_WARP_REF で最大
+  // 券を使っても打ち上げは地上から。ただし「打ち上げ」と「駆け上がり」を別々の
+  // 段にすると、砲口の蹴りが切れて速度が落ち切ったところへ急加速が来る。
+  // 撃たれたあと一拍もたつくので、券の回は最初からひと続きの一本の曲線で扱う。
+  //
+  //   砲口から出切るまで … 蹴りと同じ速さのまま等速で伸ばす（減速しない）
+  //   出切ってから      … 山なりに伸びて、また同じ速さまで戻る
+  //   着いたら          … その速さを砲口の蹴りへ渡して巡航まで落とす
+  //
+  // 山は smootherstep なので立ち上がりの加速度が 0 から始まる。等速部分との
+  // 継ぎ目で velocity も acceleration も飛ばないので、撃たれてから着くまで
+  // 一度も「もたつく」瞬間が無い
+  const SKIP_WARP_MIN = 1.6;     // 秒。打ち上げぶんを含んだ全体の長さ
+  const SKIP_WARP_ADD = 0.7;     // 距離ぶんの上乗せ。SKIP_WARP_REF で最大
   const SKIP_WARP_REF = 2000;    // ここで伸び切る（＝いまの券の最長）
-  // 速度の形は smootherstep の微分。両端がちょうど 0 になるので、打ち上げから
-  // 繋いだ瞬間と巡航へ着地する瞬間に世界が止まって見える。ごく薄く一定成分を
-  // 混ぜて、どちらの継ぎ目も動いたまま渡す
-  const SKIP_WARP_LINEAR = 0.08;
-  const SKIP_WARP_PEAK = 1.875;  // 30*t^2*(1-t)^2 の最大値。強さの正規化に使う
+  const SKIP_WARP_PEAK = 1.875;  // 30*u^2*(1-u)^2 の最大値。強さの正規化に使う
+  // 等速部分が全体に占めてよい割合の上限。券が短いほどこの割合は上がるので、
+  // 山を足す余地が無くならないように頭を押さえておく
+  const SKIP_LINEAR_MAX = 0.5;
   // 速度線を実速度で流すと 1 フレームに数百 px 飛んで、線ではなく点滅に見える。
   // 流す速さは頭打ちにして、代わりに線を伸ばして速さを出す
   const SKIP_LINE_CAP = 1400;
@@ -901,8 +908,11 @@
   // スティックの倒し具合。-1〜1 で、ボタン/キーと同じ最高速度に正規化して使う
   let stickX = 0, stickY = 0;
   let launchTimer = 0;
-  // 券で駆け上がる区間。skipTargetM が 0 なら普通の打ち上げ
-  let skipTargetM = 0, skipFromM = 0, skipTimer = 0, skipDur = 0;
+  // 券で駆け上がる区間。skipTargetM が 0 なら普通の打ち上げ。
+  // skipHold は等速で伸ばす区間が全体に占める割合（＝砲口から出切る時点）、
+  // skipLinear はその等速ぶんが稼ぐ高度の割合
+  let skipTargetM = 0, skipTimer = 0, skipDur = 0, skipHold = 0, skipLinear = 0;
+  let skipPeakRate = 1;  // 速度の山の高さ。warpAmt を 0..1 に均すのに使う
   let warpAmt = 0;      // 0..1 駆け上がりの強さ。速度線と尾の伸びに掛ける
   let warpStretch = 1;  // 速度線を何倍に伸ばして描くか。使い回しの判定と揃える
   let muzzleParticles = [];
@@ -1035,9 +1045,10 @@
   function reset(startM, useX2){
     const from = Math.max(0, startM || 0);
     runX2 = !!useX2;
-    // 券を使っても打ち上げは必ず地上から。砲口から上がり切ったところで
-    // 'skipping' に移り、券の高度まで駆け上がってから飛行が始まる
-    state = 'launching';
+    // 券を使っても打ち上げは必ず地上から。ただし券の回は打ち上げと駆け上がりを
+    // ひと続きで動かすので、最初から 'skipping' に入る（砲口から出る芝居は
+    // 通常の打ち上げとまったく同じものを中で回す）
+    state = from > 0 ? 'skipping' : 'launching';
     // 引き出しを開いたまま打ち上がると盤が見えないので必ず畳む
     setPanel(null);
     closeGacha();
@@ -1051,9 +1062,19 @@
     heightM = 0;
     skipTargetM = from;
     skipTimer = 0;
-    skipDur = 0;
     warpAmt = 0;
     warpStretch = 1;
+    if(from > 0){
+      skipDur = SKIP_WARP_MIN + SKIP_WARP_ADD*Math.min(1, from/SKIP_WARP_REF);
+      // 等速で伸ばすのは砲口から出切るまで。打ち上げの芝居と同じ長さにして
+      // おけば、玉が飛行位置へ着いた瞬間から山が立ち上がる
+      skipHold = Math.min(0.9, LAUNCH_DURATION/skipDur);
+      // その等速ぶんが稼ぐ高度の割合。速さは砲口の蹴りそのもの（巡航＋蹴りの
+      // 初速）なので、通常の打ち上げの出だしと完全に一致する
+      const muzzleMS = (SCROLL_BASE + BOOST_EXTRA)/PIXELS_PER_METER;
+      skipLinear = clamp(muzzleMS*skipDur/from, 0, SKIP_LINEAR_MAX);
+      skipPeakRate = skipLinear + (1 - skipLinear)*SKIP_WARP_PEAK/(1 - skipHold);
+    }
     scrollSpeed = SCROLL_BASE;
     spawnTimer = 1.0;
     cloudWallTimer = 5 + Math.random()*3;
@@ -1455,17 +1476,7 @@
       player.x = GAME_W/2 + Math.sin(t*10) * (1-t) * 4;
       if(t >= 1){
         player.y = PLAYER_Y;
-        if(skipTargetM > heightM){
-          // 砲口から出たところで駆け上がりに入る。距離が長いほど少しだけ長く
-          // 見せるが、比例させると 2000m が間延びするので頭打ちにする
-          state = 'skipping';
-          skipFromM = heightM;
-          skipTimer = 0;
-          skipDur = SKIP_WARP_MIN
-            + SKIP_WARP_ADD * Math.min(1, (skipTargetM - skipFromM)/SKIP_WARP_REF);
-        } else {
-          state = 'playing';
-        }
+        state = 'playing';
       }
     }
 
@@ -1474,19 +1485,31 @@
     // floating rather than being flung out of a cannon.
     const flying = state === 'launching' || state === 'playing' || state === 'skipping';
     if(state === 'skipping'){
+      // 砲口から出る芝居は通常の打ち上げとまったく同じ。違うのは、その間も
+      // 高度が蹴りの速さのまま伸び続けている（減速しない）ことだけ
+      launchTimer += dt;
+      const lt = Math.min(1, launchTimer/LAUNCH_DURATION);
+      const le = 1 - Math.pow(1-lt, 3);
+      player.y = LAUNCH_Y + (PLAYER_Y - LAUNCH_Y)*le;
+      player.x = GAME_W/2 + Math.sin(lt*10)*(1-lt)*4;
+
       skipTimer += dt;
       const t = Math.min(1, skipTimer/skipDur);
       // 位置は曲線で直に決める。速度を積むと端数が溜まって目標高度をきっかり
-      // 踏めず、記録が 1000m ではなく 998m になったりする
-      const s = t*t*t*(t*(6*t - 15) + 10);              // smootherstep
-      const prev = heightM;
-      heightM = skipFromM + (skipTargetM - skipFromM)
-        * ((1 - SKIP_WARP_LINEAR)*s + SKIP_WARP_LINEAR*t);
+      // 踏めず、記録が 1000m ではなく 998m になったりする。
+      // 等速ぶん(skipLinear*t)は最初から最後まで効き続け、山は砲口から出切った
+      // skipHold 以降だけ足される
+      const u = clamp((t - skipHold)/(1 - skipHold), 0, 1);
+      const s = u*u*u*(u*(6*u - 15) + 10);              // smootherstep
+      heightM = skipTargetM * (skipLinear*t + (1 - skipLinear)*s);
+      // 速度は曲線を微分して直に出す。位置の差分から割り出すと、最後の 1 枚
+      // だけ目標に張り付いて差が 0 になり、そのフレームの速度も、そこから
+      // 引き継ぐはずの蹴りも巻き添えで死ぬ
+      const rate = skipLinear + (1 - skipLinear)*30*u*u*(1-u)*(1-u)/(1 - skipHold);
       // 速度線・尾・貼り絵の刻みは全部この実速度から決まる
-      if(dt > 0) scrollSpeed = (heightM - prev)*PIXELS_PER_METER/dt;
+      scrollSpeed = rate * skipTargetM * PIXELS_PER_METER / skipDur;
       // 山を 1 とした強さ。速度線の伸びと粒の送りに使う
-      const v = (1 - SKIP_WARP_LINEAR)*30*t*t*(1-t)*(1-t) + SKIP_WARP_LINEAR;
-      warpAmt = clamp(v/SKIP_WARP_PEAK, 0, 1);
+      warpAmt = clamp(rate/skipPeakRate, 0, 1);
       // boost は「巡航よりどれだけ速いか」。飛行中と意味を揃えておくと、
       // 速度線の濃さも尾の長さもそのまま同じ式で描ける。
       // warpAmt をそのまま入れると、山を 1 に正規化してあるせいで終わりぎわに
