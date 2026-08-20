@@ -937,6 +937,72 @@
   const buildings = [75,150,105,215,120,175,90,235,110,160];
   const BUILDING_MAX_H = Math.max(...buildings);
 
+  // ---- 長生橋 ---------------------------------------------------------------
+  // 長岡花火が上がるのは信濃川の河川敷、長生橋のたもと。あの連続トラスの影を
+  // 砲台の後ろに置くと、打ち上げの一瞬で「ここは長岡だ」と伝わる。
+  // 見えるのは 250m ほどまでだが、どの回でも必ず最初に目へ入る位置にある。
+  // 絵は色が変わらないかぎり同じなので、裏 canvas に一度描いて貼るだけにする
+  // （街のビルと同じ黒だと溶けるので、桁の上面にだけ砲台と同じ縁の色を入れる）
+  const BRIDGE_SPANS = 8;   // 実物は13連。480px に詰めると潰れるので減らしてある
+  const BRIDGE_DECK = 30;   // 画面下端から桁の上面までの高さ
+  const BRIDGE_RISE = 26;   // トラスの山の高さ
+  const BRIDGE_H = BRIDGE_DECK + BRIDGE_RISE + 6;
+  const bridgeCv = document.createElement('canvas');
+  let bridgeKeyColor = '', bridgeKeyRim = '', bridgeKeyDpr = 0;
+
+  function buildBridge(color, rim, dpr){
+    bridgeCv.width  = Math.round(GAME_W*dpr);
+    bridgeCv.height = Math.round(BRIDGE_H*dpr);
+    const g = bridgeCv.getContext('2d');
+    if(!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, GAME_W, BRIDGE_H);
+    const top = BRIDGE_RISE + 6;      // 桁の上面
+    const w = GAME_W / BRIDGE_SPANS;
+
+    // 曲弦トラス。径間ごとに山なりの上弦を張り、垂直材で桁と繋ぐ。
+    // 上弦は制御点を 2 倍に取った二次ベジエなので、山の頂は ちょうど BRIDGE_RISE
+    g.strokeStyle = color;
+    g.lineWidth = 2.5;
+    g.beginPath();
+    for(let i=0;i<BRIDGE_SPANS;i++){
+      const x0 = i*w, x1 = x0 + w;
+      g.moveTo(x0, top);
+      g.quadraticCurveTo((x0+x1)/2, top - BRIDGE_RISE*2, x1, top);
+      // 垂直材。上弦の高さは top - 4*R*t*(1-t) で出る
+      for(const t of [0.25, 0.5, 0.75]){
+        const vx = x0 + w*t;
+        g.moveTo(vx, top - 4*BRIDGE_RISE*t*(1-t));
+        g.lineTo(vx, top);
+      }
+    }
+    g.stroke();
+
+    // 桁と橋脚
+    g.fillStyle = color;
+    g.fillRect(0, top, GAME_W, 5);
+    for(let i=0;i<=BRIDGE_SPANS;i++) g.fillRect(i*w - 2.5, top, 5, BRIDGE_H - top);
+
+    // 砲台の縁と同じ色の細い線。真っ黒のビル群から桁を浮かせる
+    g.strokeStyle = rim;
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(0, top + 0.5);
+    g.lineTo(GAME_W, top + 0.5);
+    g.stroke();
+  }
+
+  function drawBridge(drop, color, rim){
+    const y = GAME_H - BRIDGE_H + drop;
+    if(y > GAME_H) return;             // 下へ流れ切った
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if(color !== bridgeKeyColor || rim !== bridgeKeyRim || dpr !== bridgeKeyDpr){
+      bridgeKeyColor = color; bridgeKeyRim = rim; bridgeKeyDpr = dpr;
+      buildBridge(color, rim, dpr);
+    }
+    ctx.drawImage(bridgeCv, 0, y, GAME_W, BRIDGE_H);
+  }
+
   // streaks that rush past during the boost — the only thing that actually sells
   // speed, since the shot itself is pinned to a fixed height on screen
   const speedLines = [];
@@ -1035,6 +1101,45 @@
     return (-b + Math.sqrt(b*b - 4*a*c)) / (2*a);
   }
 
+  // ---- 高度の目印 -----------------------------------------------------------
+  // 「どこまで高く」を競うゲームなので、数字だけだと伸びの実感が湧かない。
+  // 通過した高さに実物を並べると、新潟の地理がそのまま物差しになる。
+  // 手前の二つは長岡花火の玉そのものの開花高度。ゲームの主題と直結している。
+  // ※ 数字は提出前にもう一度確かめること（人前に出る文言）
+  const LANDMARKS = [
+    { m: 330,   label:'尺玉の開花高度' },
+    { m: 600,   label:'正三尺玉の開花高度' },
+    { m: 634,   label:'弥彦山' },
+    { m: 993,   label:'米山' },
+    { m: 1172,  label:'金北山（佐渡最高峰）' },
+    { m: 1778,  label:'八海山' },
+    { m: 2003,  label:'越後駒ヶ岳' },
+    { m: 2454,  label:'妙高山' },
+    { m: 2766,  label:'小蓮華山（新潟県最高峰）' },
+    // ここから先は新潟の山より高い。目印が尽きると伸びの手応えも尽きるので、
+    // 高高度は一般的な高さで繋ぐ
+    { m: 10000, label:'旅客機の巡航高度' },
+    { m: 15000, label:'成層圏' },
+    { m: 30000, label:'気球で人が到達した高さ' }
+  ];
+  const LANDMARK_SHOW = 2.2;   // 出てから消えるまでの秒数
+  let landmarkIdx = 0;         // 次に出す目印
+  let landmarkMsg = '';
+  let landmarkT = LANDMARK_SHOW; // 経過。LANDMARK_SHOW に達していると出ていない
+
+  // 通過したぶんだけ進める。券の駆け上がりでは 2 秒で 8 個ぶん飛ぶので、
+  // 一つずつ出さずに「最後に通り過ぎた一つ」だけを着地時に見せる
+  function passLandmarks(show){
+    let hit = null;
+    while(landmarkIdx < LANDMARKS.length && heightM >= LANDMARKS[landmarkIdx].m){
+      hit = LANDMARKS[landmarkIdx++];
+    }
+    if(hit && show){
+      landmarkMsg = hit.label + ' ' + hit.m.toLocaleString() + 'm';
+      landmarkT = 0;
+    }
+  }
+
   // 通常の打ち上げが t 秒で稼ぐ px。巡航ぶん（elapsed で少しずつ増える項は
   // 数秒では 1px 程度にしかならないので SCROLL_BASE で足りる）に、砲口の蹴りが
   // 減衰しながら積む距離を足したもの。券の駆け上がりは、目標高度からこれを
@@ -1102,6 +1207,9 @@
     windDebrisTimer = 0.4;
     scatterSpeedLines();
     scatterWindStreaks();
+    landmarkIdx = 0;
+    landmarkT = LANDMARK_SHOW; // 前の回の目印が残ったまま次が始まらないように
+    landmarkMsg = '';
     hudShownM = 0;
     hudHeight.textContent = '0m'; // else the previous run's height lingers through the launch animation
     startScreen.classList.add('hidden');
@@ -1523,6 +1631,9 @@
         warpAmt = 0;
         skipTargetM = 0;
         state = 'playing';
+        // 券で飛び越したぶんの目印。いま自分がどの高さに居るのかが分かる
+        landmarkIdx = Math.max(0, landmarkIdx - 1);
+        passLandmarks(true);
       }
     } else if(state === 'launching' || state === 'playing'){
       boostTime += dt;
@@ -1543,6 +1654,9 @@
         hudShownM = shown;
         hudHeight.textContent = shown + 'm';
       }
+      // 駆け上がり中は溜めておいて、着地したフレームでまとめて 1 個だけ出す
+      passLandmarks(state !== 'skipping');
+      if(landmarkT < LANDMARK_SHOW) landmarkT += dt;
 
       // 駆け上がり中は世界が桁違いに速く流れる。粒だけその場に残ると玉が止まって
       // 見えるので、下へ送ってやる。実速度に比例させると粒まで点滅するので、
@@ -2013,6 +2127,9 @@
       for(let i=0;i<14;i++){
         ctx.fillRect((i*bw*0.7)%GAME_W + 6, GAME_H-20-Math.random()*60 + cityDrop, 3, 3);
       }
+      // ビルより手前。砲台はこのあと drawCannon が上に描くので、
+      // 「橋を背にした河川敷から上がる」並びになる
+      drawBridge(cityDrop, bg.city, bg.grid);
       ctx.restore();
     }
   }
@@ -2395,6 +2512,33 @@
     drawGlowParticles(particles);
   }
 
+  // 自機より下、風ゲージのすぐ上に出す。上に置くと、これから避ける障害物に
+  // 文字が重なってしまう。ここなら通り過ぎたあとの空なので邪魔にならない
+  function drawLandmark(){
+    if(landmarkT >= LANDMARK_SHOW || !landmarkMsg) return;
+    // 出は速く、消えはゆっくり
+    const a = Math.min(landmarkT/0.2, Math.max(0, (LANDMARK_SHOW - landmarkT)/0.6), 1);
+    if(a <= 0.01) return;
+    const y = GAME_H - 104;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 15px "Hiragino Sans","Yu Gothic",system-ui,sans-serif';
+    const w = ctx.measureText(landmarkMsg).width + 26;
+    ctx.globalAlpha = a * 0.5;
+    ctx.fillStyle = '#05040f';
+    roundRect(GAME_W/2 - w/2, y - 15, w, 30, 15);
+    ctx.fill();
+    ctx.globalAlpha = a * 0.85;
+    ctx.strokeStyle = 'rgba(41,241,255,0.55)'; // 砲台・橋の縁と同じ色
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#eef2ff';
+    ctx.fillText(landmarkMsg, GAME_W/2, y + 1);
+    ctx.restore();
+  }
+
   function drawWindGauge(){
     if(windVisible <= 0.01) return;
     const speed = Math.abs(windSpeed);
@@ -2520,6 +2664,7 @@
     ctx.restore();
 
     drawWindGauge(); // HUD, never scaled
+    drawLandmark();
   }
 
   // ---- 横向きの停止 ---------------------------------------------------------
